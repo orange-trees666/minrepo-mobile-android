@@ -1,10 +1,9 @@
-bin/
-obj/
-.vs/
+**/bin/
+**/obj/
 *.user
 *.suo
-*.apk
-*.aab
 *.keystore
 *.jks
-artifacts/
+*.apk
+*.aab
+.vs/

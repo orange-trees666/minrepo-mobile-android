@@ -1,0 +1,34 @@
+name: Build Android Debug APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install Android workload
+        run: dotnet workload install maui-android
+
+      - name: Restore
+        run: dotnet restore .\MinRepoMobile\MinRepoMobile.csproj
+
+      # Debug APKはテスト導入用です。一般配布時は独自の署名鍵でRelease発行してください。
+      - name: Build debug APK
+        run: dotnet build .\MinRepoMobile\MinRepoMobile.csproj -f net10.0-android -c Debug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: minrepo-mobile-debug-apk
+          path: MinRepoMobile\bin\Debug\net10.0-android\**\*.apk
+          if-no-files-found: error

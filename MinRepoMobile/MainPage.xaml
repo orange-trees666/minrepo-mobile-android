@@ -1,0 +1,264 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ContentPage
+    x:Class="MinRepoMobile.MainPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    Title="みんレポ抽出"
+    BackgroundColor="{StaticResource Surface}">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="18" Spacing="14">
+            <Label
+                Text="店舗別スロットデータ抽出"
+                FontSize="24"
+                FontAttributes="Bold"
+                TextColor="{StaticResource Primary}" />
+
+            <Label
+                Text="Pixel 7aだけで公開レポートを取得し、CSV一式をZIPで保存できます。"
+                TextColor="{StaticResource TextSecondary}" />
+
+            <Border
+                Padding="14"
+                BackgroundColor="White"
+                Stroke="{StaticResource Border}"
+                StrokeShape="RoundRectangle 12">
+                <VerticalStackLayout Spacing="12">
+                    <Label Text="1. 取得対象" FontAttributes="Bold" FontSize="17" />
+
+                    <HorizontalStackLayout Spacing="18">
+                        <RadioButton
+                            x:Name="StoreModeRadio"
+                            Content="店舗一覧"
+                            GroupName="SourceMode"
+                            IsChecked="True"
+                            CheckedChanged="OnModeChanged" />
+                        <RadioButton
+                            x:Name="ReportModeRadio"
+                            Content="1日分"
+                            GroupName="SourceMode"
+                            CheckedChanged="OnModeChanged" />
+                    </HorizontalStackLayout>
+
+                    <Label x:Name="UrlLabel" Text="店舗の /tag/ を含むURL" />
+                    <Entry
+                        x:Name="UrlEntry"
+                        Keyboard="Url"
+                        ClearButtonVisibility="WhileEditing"
+                        Placeholder="https://min-repo.com/tag/店舗名/" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border
+                x:Name="PeriodPanel"
+                Padding="14"
+                BackgroundColor="White"
+                Stroke="{StaticResource Border}"
+                StrokeShape="RoundRectangle 12">
+                <VerticalStackLayout Spacing="12">
+                    <Label Text="2. 期間・取得上限" FontAttributes="Bold" FontSize="17" />
+
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="12" RowDefinitions="Auto,Auto,Auto">
+                        <Label Grid.Row="0" Grid.Column="0" Text="開始日" />
+                        <Label Grid.Row="0" Grid.Column="1" Text="終了日" />
+                        <DatePicker
+                            x:Name="FromDatePicker"
+                            Grid.Row="1"
+                            Grid.Column="0"
+                            Format="yyyy-MM-dd"
+                            DateSelected="OnDateSelected" />
+                        <DatePicker
+                            x:Name="ToDatePicker"
+                            Grid.Row="1"
+                            Grid.Column="1"
+                            Format="yyyy-MM-dd"
+                            DateSelected="OnDateSelected" />
+                        <Button
+                            x:Name="FromDateButton"
+                            Grid.Row="2"
+                            Grid.Column="0"
+                            Margin="0,6,0,0"
+                            Text="開始日を選択"
+                            BackgroundColor="#E7ECF2"
+                            TextColor="{StaticResource TextPrimary}"
+                            Clicked="OnOpenFromDateClicked" />
+                        <Button
+                            x:Name="ToDateButton"
+                            Grid.Row="2"
+                            Grid.Column="1"
+                            Margin="0,6,0,0"
+                            Text="終了日を選択"
+                            BackgroundColor="#E7ECF2"
+                            TextColor="{StaticResource TextPrimary}"
+                            Clicked="OnOpenToDateClicked" />
+                    </Grid>
+
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <VerticalStackLayout Grid.Column="0" Spacing="2">
+                            <Label Text="最大レポート数" />
+                            <Label
+                                Text="スマホ負荷と通信量を抑える上限です。"
+                                FontSize="12"
+                                TextColor="{StaticResource TextSecondary}" />
+                        </VerticalStackLayout>
+                        <Entry
+                            x:Name="MaxReportsEntry"
+                            Grid.Column="1"
+                            Text="31"
+                            Keyboard="Numeric"
+                            WidthRequest="80"
+                            HorizontalTextAlignment="End" />
+                    </Grid>
+                </VerticalStackLayout>
+            </Border>
+
+            <Border
+                Padding="14"
+                BackgroundColor="White"
+                Stroke="{StaticResource Border}"
+                StrokeShape="RoundRectangle 12">
+                <VerticalStackLayout Spacing="12">
+                    <Label Text="3. 集計条件" FontAttributes="Bold" FontSize="17" />
+
+                    <Label Text="集計期間（複数選択可）" />
+                    <FlexLayout Direction="Row" Wrap="Wrap">
+                        <CheckBox x:Name="DayCheckBox" IsChecked="True" />
+                        <Label Text="日毎" VerticalTextAlignment="Center" Margin="0,0,12,0" />
+                        <CheckBox x:Name="WeekCheckBox" IsChecked="True" />
+                        <Label Text="週毎（月曜始まり）" VerticalTextAlignment="Center" Margin="0,0,12,0" />
+                        <CheckBox x:Name="MonthCheckBox" IsChecked="True" />
+                        <Label Text="月毎" VerticalTextAlignment="Center" />
+                    </FlexLayout>
+
+                    <Label Text="集計キー（複数選択可）" />
+                    <FlexLayout Direction="Row" Wrap="Wrap">
+                        <CheckBox x:Name="MachineKeyCheckBox" IsChecked="True" />
+                        <Label Text="機種別" VerticalTextAlignment="Center" Margin="0,0,12,0" />
+                        <CheckBox x:Name="PayoutKeyCheckBox" IsChecked="True" />
+                        <Label Text="出率帯別" VerticalTextAlignment="Center" Margin="0,0,12,0" />
+                        <CheckBox x:Name="EndingKeyCheckBox" IsChecked="True" />
+                        <Label Text="末尾別" VerticalTextAlignment="Center" Margin="0,0,12,0" />
+                        <CheckBox x:Name="InstalledKeyCheckBox" IsChecked="True" />
+                        <Label Text="設置台数別" VerticalTextAlignment="Center" />
+                    </FlexLayout>
+
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                        <CheckBox
+                            x:Name="BonusDetailsCheckBox"
+                            Grid.Column="0"
+                            IsChecked="False" />
+                        <VerticalStackLayout Grid.Column="1" Spacing="2">
+                            <Label Text="BB・RB・合成確率まで取得" VerticalTextAlignment="Center" />
+                            <Label
+                                Text="チェック時はBB・RBも保存します。マイナス差枚の復元では、チェックにかかわらず機種別ページを取得します。"
+                                FontSize="12"
+                                TextColor="{StaticResource TextSecondary}" />
+                        </VerticalStackLayout>
+                    </Grid>
+                </VerticalStackLayout>
+            </Border>
+
+            <Border
+                Padding="14"
+                BackgroundColor="White"
+                Stroke="{StaticResource Border}"
+                StrokeShape="RoundRectangle 12">
+                <VerticalStackLayout Spacing="12">
+                    <Label Text="4. 取得失敗時の出力" FontAttributes="Bold" FontSize="17" />
+
+                    <RadioButton
+                        x:Name="PartialOutputRadio"
+                        Content="取得済み分で作成し、失敗箇所をCSVへ記録"
+                        GroupName="OutputMode"
+                        IsChecked="True" />
+                    <Label
+                        Text="ページや台番の一部を取得できなくても処理を続け、00_取得失敗一覧.csvへ記録します。"
+                        Margin="36,-8,0,0"
+                        FontSize="12"
+                        TextColor="{StaticResource TextSecondary}" />
+
+                    <RadioButton
+                        x:Name="StrictOutputRadio"
+                        Content="1件でも取得できなければファイルを作成しない"
+                        GroupName="OutputMode" />
+                    <Label
+                        Text="全台数・総差枚・詳細データを完全に確認できた場合だけZIPを作成します。"
+                        Margin="36,-8,0,0"
+                        FontSize="12"
+                        TextColor="{StaticResource TextSecondary}" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border
+                Padding="14"
+                BackgroundColor="White"
+                Stroke="{StaticResource Border}"
+                StrokeShape="RoundRectangle 12">
+                <VerticalStackLayout Spacing="12">
+                    <Label Text="5. 実行" FontAttributes="Bold" FontSize="17" />
+
+                    <Grid ColumnDefinitions="2*,*" ColumnSpacing="10">
+                        <Button
+                            x:Name="StartButton"
+                            Grid.Column="0"
+                            Text="取得を開始"
+                            BackgroundColor="{StaticResource Accent}"
+                            TextColor="White"
+                            Clicked="OnStartClicked" />
+                        <Button
+                            x:Name="CancelButton"
+                            Grid.Column="1"
+                            Text="中止"
+                            BackgroundColor="#E7ECF2"
+                            TextColor="{StaticResource TextPrimary}"
+                            IsEnabled="False"
+                            Clicked="OnCancelClicked" />
+                    </Grid>
+
+                    <ProgressBar
+                        x:Name="ProgressBar"
+                        Progress="0"
+                        ProgressColor="{StaticResource Accent}" />
+
+                    <Label
+                        x:Name="StatusLabel"
+                        Text="待機中"
+                        FontAttributes="Bold" />
+
+                    <Editor
+                        x:Name="LogEditor"
+                        HeightRequest="150"
+                        IsReadOnly="True"
+                        AutoSize="Disabled"
+                        BackgroundColor="#F2F5F8"
+                        TextColor="{StaticResource TextSecondary}" />
+
+                    <Button
+                        x:Name="ShareButton"
+                        Text="結果ZIPを保存・共有"
+                        BackgroundColor="#2E7D32"
+                        TextColor="White"
+                        IsEnabled="False"
+                        Clicked="OnShareClicked" />
+
+                    <Button
+                        Text="通信なしで動作テスト"
+                        BackgroundColor="#FFF2CC"
+                        TextColor="#7F6000"
+                        Clicked="OnSelfTestClicked" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border
+                Padding="12"
+                BackgroundColor="#FFF8E1"
+                Stroke="#F0D98A"
+                StrokeShape="RoundRectangle 10">
+                <Label
+                    Text="注意: 取得中は画面を開いたままにしてください。出力は個人分析用です。引用・公開時はCSVの出典URLを併記してください。"
+                    FontSize="12"
+                    TextColor="#6D5700" />
+            </Border>
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

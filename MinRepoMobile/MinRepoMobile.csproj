@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Pixel 7aでの単体実行を目的とし、Androidだけを対象にすることで構成を簡潔にします。 -->
+    <TargetFramework>net10.0-android</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>MinRepoMobile</RootNamespace>
+    <UseMaui>true</UseMaui>
+    <SingleProject>true</SingleProject>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- 文字列補間・raw文字列・コレクション式をSDK付属の最新C#で統一します。 -->
+    <LangVersion>latest</LangVersion>
+
+    <ApplicationTitle>みんレポ抽出</ApplicationTitle>
+    <ApplicationId>jp.minrepo.mobileextractor</ApplicationId>
+    <!-- 修正版APKを既存端末へ上書き導入できるよう、表示版とVersionCodeを更新します。 -->
+    <ApplicationDisplayVersion>1.0.5</ApplicationDisplayVersion>
+    <ApplicationVersion>6</ApplicationVersion>
+
+    <!-- Android 8.0以上。Pixel 7aはこの条件を満たします。 -->
+    <SupportedOSPlatformVersion>26.0</SupportedOSPlatformVersion>
+
+    <!-- 個人端末への直接インストールに使いやすいAPKを生成します。 -->
+    <AndroidPackageFormats>apk</AndroidPackageFormats>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      .NET 8以降はUseMauiだけではMAUI ControlsのNuGet参照が自動追加されません。
+      明示的に参照し、MA002警告とビルド環境ごとの依存関係差異を防ぎます。
+    -->
+    <PackageReference Include="Microsoft.Maui.Controls"
+                      Version="10.0.20" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <MauiIcon Include="Resources\AppIcon\appicon.svg"
+              ForegroundFile="Resources\AppIcon\appiconfg.svg"
+              Color="#17365D" />
+    <MauiSplashScreen Include="Resources\Splash\splash.svg"
+                      Color="#17365D"
+                      BaseSize="128,128" />
+    <MauiAsset Include="Resources\Raw\**"
+               LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>
