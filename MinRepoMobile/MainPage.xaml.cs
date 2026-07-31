@@ -9,15 +9,21 @@ namespace MinRepoMobile;
 public partial class MainPage : ContentPage
 {
     private readonly MinRepoExtractionService _extractor;
+    private readonly StoreCatalogService _storeCatalog;
     private CancellationTokenSource? _cancellation;
     private string? _latestZipPath;
     private DateOnly _selectedFromDate;
     private DateOnly _selectedToDate;
+    private IReadOnlyList<StoreDefinition> _allStores = [];
+    private bool _storeCatalogLoaded;
 
-    public MainPage(MinRepoExtractionService extractor)
+    public MainPage(
+        MinRepoExtractionService extractor,
+        StoreCatalogService storeCatalog)
     {
         InitializeComponent();
         _extractor = extractor;
+        _storeCatalog = storeCatalog;
 
         // 初期期間は直近30日とし、スマホで過度な件数を取得しない設定にします。
         _selectedToDate = DateOnly.FromDateTime(DateTime.Today);
@@ -25,6 +31,53 @@ public partial class MainPage : ContentPage
         ToDatePicker.Date = _selectedToDate.ToDateTime(TimeOnly.MinValue);
         FromDatePicker.Date = _selectedFromDate.ToDateTime(TimeOnly.MinValue);
         UpdateDateButtonText();
+
+        // XAML部品の生成後に非同期でJSONを読み込みます。
+        // コンストラクター内で待機せず、Androidの画面生成を止めない構成です。
+        Loaded += OnPageLoaded;
+    }
+
+    /// <summary>
+    /// stores.jsonを一度だけ読み込み、都道府県・店舗Pickerへ設定します。
+    /// 読込に失敗した場合は、従来のURL直接入力へ自動的に切り替えます。
+    /// </summary>
+    private async void OnPageLoaded(object? sender, EventArgs e)
+    {
+        if (_storeCatalogLoaded)
+        {
+            return;
+        }
+
+        _storeCatalogLoaded = true;
+
+        try
+        {
+            _allStores = await _storeCatalog.LoadAsync();
+
+            var prefectures = _allStores
+                .Select(store => store.Prefecture)
+                .Distinct(StringComparer.CurrentCulture)
+                .OrderBy(value => value, StringComparer.CurrentCulture)
+                .ToArray();
+
+            PrefecturePicker.ItemsSource = prefectures;
+            var tokyoIndex = Array.FindIndex(
+                prefectures,
+                value => value.Equals("東京都", StringComparison.Ordinal));
+            PrefecturePicker.SelectedIndex =
+                tokyoIndex >= 0 ? tokyoIndex : 0;
+
+            StoreCatalogStatusLabel.Text =
+                $"設定ファイルから{_allStores.Count:N0}店舗を読み込みました。";
+        }
+        catch (Exception ex)
+        {
+            ManualUrlCheckBox.IsChecked = true;
+            ManualUrlCheckBox.IsEnabled = false;
+            StoreCatalogStatusLabel.Text =
+                $"店舗設定を読み込めないためURL直接入力を使用します: {ex.Message}";
+            AppendLog(StoreCatalogStatusLabel.Text);
+        }
     }
 
     /// <summary>
@@ -72,12 +125,55 @@ public partial class MainPage : ContentPage
 
         var storeMode = StoreModeRadio.IsChecked;
         PeriodPanel.IsVisible = storeMode;
+        StoreSelectionPanel.IsVisible = storeMode;
+        ManualUrlPanel.IsVisible =
+            !storeMode || ManualUrlCheckBox.IsChecked;
         UrlLabel.Text = storeMode
             ? "店舗の /tag/ を含むURL"
             : "日別レポートURL";
         UrlEntry.Placeholder = storeMode
             ? "https://min-repo.com/tag/店舗名/"
             : "https://min-repo.com/1234567/";
+    }
+
+    /// <summary>
+    /// 都道府県が変わったとき、該当する店舗だけを店舗Pickerへ表示します。
+    /// 現在のテスト設定は東京都のみですが、JSON追加だけで他県にも対応できます。
+    /// </summary>
+    private void OnPrefectureChanged(object? sender, EventArgs e)
+    {
+        if (PrefecturePicker.SelectedItem is not string prefecture)
+        {
+            StorePicker.ItemsSource = null;
+            return;
+        }
+
+        var stores = _allStores
+            .Where(store => store.Prefecture.Equals(
+                prefecture,
+                StringComparison.Ordinal))
+            .OrderBy(store => store.Name, StringComparer.CurrentCulture)
+            .ToArray();
+
+        StorePicker.ItemsSource = stores;
+        StorePicker.SelectedIndex = stores.Length > 0 ? 0 : -1;
+    }
+
+    /// <summary>
+    /// 未登録店舗を取得するときだけURL入力欄を表示します。
+    /// </summary>
+    private void OnManualUrlChanged(
+        object? sender,
+        CheckedChangedEventArgs e)
+    {
+        if (!StoreModeRadio.IsChecked)
+        {
+            return;
+        }
+
+        ManualUrlPanel.IsVisible = e.Value;
+        PrefecturePicker.IsEnabled = !e.Value;
+        StorePicker.IsEnabled = !e.Value;
     }
 
     private async void OnStartClicked(object? sender, EventArgs e)
@@ -204,10 +300,29 @@ public partial class MainPage : ContentPage
         request = null;
         validationMessage = string.Empty;
 
-        if (string.IsNullOrWhiteSpace(UrlEntry.Text))
+        var useManualUrl =
+            ReportModeRadio.IsChecked || ManualUrlCheckBox.IsChecked;
+
+        string sourceUrl;
+        if (useManualUrl)
         {
-            validationMessage = "みんレポのURLを入力してください。";
-            return false;
+            if (string.IsNullOrWhiteSpace(UrlEntry.Text))
+            {
+                validationMessage = "みんレポのURLを入力してください。";
+                return false;
+            }
+
+            sourceUrl = UrlEntry.Text.Trim();
+        }
+        else
+        {
+            if (StorePicker.SelectedItem is not StoreDefinition selectedStore)
+            {
+                validationMessage = "取得する店舗を選択してください。";
+                return false;
+            }
+
+            sourceUrl = selectedStore.Url;
         }
 
         if (!int.TryParse(MaxReportsEntry.Text, out var maxReports))
@@ -254,7 +369,7 @@ public partial class MainPage : ContentPage
         }
 
         request = new ExtractionRequest(
-            SourceUrl: UrlEntry.Text.Trim(),
+            SourceUrl: sourceUrl,
             IsStoreMode: StoreModeRadio.IsChecked,
             FromDate: StoreModeRadio.IsChecked ? fromDate : null,
             ToDate: StoreModeRadio.IsChecked ? toDate : null,
@@ -289,6 +404,12 @@ public partial class MainPage : ContentPage
         StartButton.IsEnabled = !isRunning;
         CancelButton.IsEnabled = isRunning;
         UrlEntry.IsEnabled = !isRunning;
+        PrefecturePicker.IsEnabled =
+            !isRunning && !ManualUrlCheckBox.IsChecked;
+        StorePicker.IsEnabled =
+            !isRunning && !ManualUrlCheckBox.IsChecked;
+        ManualUrlCheckBox.IsEnabled =
+            !isRunning && _allStores.Count > 0;
         StoreModeRadio.IsEnabled = !isRunning;
         ReportModeRadio.IsEnabled = !isRunning;
         MaxReportsEntry.IsEnabled = !isRunning;

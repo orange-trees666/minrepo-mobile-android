@@ -1,0 +1,148 @@
+{
+  "version": 1,
+  "sourceUrl": "https://min-repo.com/ranking/?chihou=%E6%9D%B1%E4%BA%AC%E9%83%BD",
+  "verifiedOn": "2026-07-31",
+  "scopeNote": "東京都ランキングで確認できた代表20店舗を使うプルダウン動作テスト用設定です。東京都の全店舗を保証する一覧ではありません。",
+  "stores": [
+    {
+      "id": "p-ark-kitasenju",
+      "prefecture": "東京都",
+      "name": "ピーアーク北千住",
+      "url": "https://min-repo.com/tag/%E3%83%94%E3%83%BC%E3%82%A2%E3%83%BC%E3%82%AF%E5%8C%97%E5%8D%83%E4%BD%8F/",
+      "enabled": true
+    },
+    {
+      "id": "big-dipper-higashinakano",
+      "prefecture": "東京都",
+      "name": "BIGディッパー東中野店",
+      "url": "https://min-repo.com/tag/big%E3%83%87%E3%82%A3%E3%83%83%E3%83%91%E3%83%BC%E6%9D%B1%E4%B8%AD%E9%87%8E%E5%BA%97/",
+      "enabled": true
+    },
+    {
+      "id": "big-dipper-kiba",
+      "prefecture": "東京都",
+      "name": "BIGディッパー木場店",
+      "url": "https://min-repo.com/tag/big%E3%83%87%E3%82%A3%E3%83%83%E3%83%91%E3%83%BC%E6%9C%A8%E5%A0%B4%E5%BA%97/",
+      "enabled": true
+    },
+    {
+      "id": "maruhan-megacity-kamata-7",
+      "prefecture": "東京都",
+      "name": "マルハンメガシティ2000蒲田7",
+      "url": "https://min-repo.com/tag/%E3%83%9E%E3%83%AB%E3%83%8F%E3%83%B3%E3%83%A1%E3%82%AC%E3%82%B7%E3%83%86%E3%82%A32000%E8%92%B2%E7%94%B07/",
+      "enabled": true
+    },
+    {
+      "id": "bellcity-thecity-shinozaki",
+      "prefecture": "東京都",
+      "name": "ベルシティ/ザシティ篠崎店",
+      "url": "https://min-repo.com/tag/%E3%83%99%E3%83%AB%E3%82%B7%E3%83%86%E3%82%A3-%E3%82%B6%E3%82%B7%E3%83%86%E3%82%A3%E7%AF%A0%E5%B4%8E%E5%BA%97/",
+      "enabled": true
+    },
+    {
+      "id": "maruhan-megacity-kamata-1",
+      "prefecture": "東京都",
+      "name": "マルハンメガシティ2000 蒲田1",
+      "url": "https://min-repo.com/tag/%E3%83%9E%E3%83%AB%E3%83%8F%E3%83%B3%E8%92%B2%E7%94%B0%E9%A7%85%E6%9D%B1%E5%BA%97/",
+      "enabled": true
+    },
+    {
+      "id": "iidabashi-presas",
+      "prefecture": "東京都",
+      "name": "飯田橋プレサス",
+      "url": "https://min-repo.com/tag/%E3%83%97%E3%83%AC%E3%82%B5%E3%82%B9/",
+      "enabled": true
+    },
+    {
+      "id": "maruhan-shinjuku-toho",
+      "prefecture": "東京都",
+      "name": "マルハン新宿東宝ビル店",
+      "url": "https://min-repo.com/tag/%E3%83%9E%E3%83%AB%E3%83%8F%E3%83%B3%E6%96%B0%E5%AE%BF%E6%9D%B1%E5%AE%9D%E3%83%9B%E3%83%93%E3%83%AB%E5%BA%97/",
+      "enabled": true
+    },
+    {
+      "id": "mitoya-omorimachi",
+      "prefecture": "東京都",
+      "name": "みとや大森町店",
+      "url": "https://min-repo.com/tag/%E3%81%BF%E3%81%A8%E3%82%84%E5%A4%A7%E6%A3%AE%E7%94%BA%E5%BA%97/",
+      "enabled": true
+    },
+    {
+      "id": "super-seven-shinkoenji",
+      "prefecture": "東京都",
+      "name": "パーラースーパーセブン新高円寺店",
+      "url": "https://min-repo.com/tag/%E3%83%91%E3%83%BC%E3%83%A9%E3%83%BC%E3%82%B9%E3%83%BC%E3%83%91%E3%83%BC%E3%82%BB%E3%83%96%E3%83%B3%E6%96%B0%E9%AB%98%E5%86%86%E5%AF%BA%E5%BA%97/",
+      "enabled": true
+    },
+    {
+      "id": "kaleido-shinjuku",
+      "prefecture": "東京都",
+      "name": "カレイド新宿店",
+      "url": "https://min-repo.com/tag/%E3%82%AB%E3%83%AC%E3%82%A4%E3%83%89%E6%96%B0%E5%AE%BF%E5%BA%97/",
+      "enabled": true
+    },
+    {
+      "id": "island-akihabara",
+      "prefecture": "東京都",
+      "name": "アイランド秋葉原店",
+      "url": "https://min-repo.com/tag/%E3%82%A2%E3%82%A4%E3%83%A9%E3%83%B3%E3%83%89%E7%A7%8B%E8%91%89%E5%8E%9F%E5%BA%97/",
+      "enabled": true
+    },
+    {
+      "id": "grand-hall-nishitakashimadaira",
+      "prefecture": "東京都",
+      "name": "グランドホール西高島平店",
+      "url": "https://min-repo.com/tag/%E3%82%B0%E3%83%A9%E3%83%B3%E3%83%89%E3%83%9B%E3%83%BC%E3%83%AB%E8%A5%BF%E9%AB%98%E5%B3%B6%E5%B9%B3%E5%BA%97/",
+      "enabled": true
+    },
+    {
+      "id": "full-house-togoshikoen",
+      "prefecture": "東京都",
+      "name": "フルハウス戸越公園店",
+      "url": "https://min-repo.com/tag/%E3%83%95%E3%83%AB%E3%83%8F%E3%82%A6%E3%82%B9%E6%88%B8%E8%B6%8A%E5%85%AC%E5%9C%92%E5%BA%97/",
+      "enabled": true
+    },
+    {
+      "id": "espace-akasaka-mitsuke",
+      "prefecture": "東京都",
+      "name": "エスパス日拓赤坂見附駅前新館",
+      "url": "https://min-repo.com/tag/%E3%82%A8%E3%82%B9%E3%83%91%E3%82%B9%E6%97%A5%E6%8B%93%E8%B5%A4%E5%9D%82%E8%A6%8B%E9%99%84%E9%A7%85%E5%89%8D%E6%96%B0%E9%A4%A8/",
+      "enabled": true
+    },
+    {
+      "id": "rakuen-ikebukuro-green",
+      "prefecture": "東京都",
+      "name": "楽園池袋店グリーンサイド",
+      "url": "https://min-repo.com/tag/%E6%A5%BD%E5%9C%92%E6%B1%A0%E8%A2%8B%E5%BA%97%E3%82%B0%E3%83%AA%E3%83%BC%E3%83%B3%E3%82%B5%E3%82%A4%E3%83%89/",
+      "enabled": true
+    },
+    {
+      "id": "espace-seibu-shinjuku",
+      "prefecture": "東京都",
+      "name": "エスパス日拓西武新宿駅前",
+      "url": "https://min-repo.com/tag/%E3%82%A8%E3%82%B9%E3%83%91%E3%82%B9%E6%97%A5%E6%8B%93%E8%A5%BF%E6%AD%A6%E6%96%B0%E5%AE%BF%E9%A7%85%E5%89%8D/",
+      "enabled": true
+    },
+    {
+      "id": "mitoya-kinshicho-north",
+      "prefecture": "東京都",
+      "name": "みとや錦糸町北口店",
+      "url": "https://min-repo.com/tag/%E3%81%BF%E3%81%A8%E3%82%84%E9%8C%A6%E7%B3%B8%E7%94%BA%E5%8C%97%E5%8F%A3%E5%BA%97/",
+      "enabled": true
+    },
+    {
+      "id": "amuse-asakusa",
+      "prefecture": "東京都",
+      "name": "アミューズ浅草店",
+      "url": "https://min-repo.com/tag/%E3%82%A2%E3%83%9F%E3%83%A5%E3%83%BC%E3%82%BA%E6%B5%85%E8%8D%89%E5%BA%97/",
+      "enabled": true
+    },
+    {
+      "id": "mitoya-jackpot-kinshicho",
+      "prefecture": "東京都",
+      "name": "みとやジャックポット錦糸町",
+      "url": "https://min-repo.com/tag/%E3%81%BF%E3%81%A8%E3%82%84%E3%82%B8%E3%83%A3%E3%83%83%E3%82%AF%E3%83%9D%E3%83%83%E3%83%88%E9%8C%A6%E7%B3%B8%E7%94%BA/",
+      "enabled": true
+    }
+  ]
+}

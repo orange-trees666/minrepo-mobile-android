@@ -40,12 +40,52 @@
                             CheckedChanged="OnModeChanged" />
                     </HorizontalStackLayout>
 
-                    <Label x:Name="UrlLabel" Text="店舗の /tag/ を含むURL" />
-                    <Entry
-                        x:Name="UrlEntry"
-                        Keyboard="Url"
-                        ClearButtonVisibility="WhileEditing"
-                        Placeholder="https://min-repo.com/tag/店舗名/" />
+                    <VerticalStackLayout
+                        x:Name="StoreSelectionPanel"
+                        Spacing="8">
+                        <Label Text="都道府県" />
+                        <Picker
+                            x:Name="PrefecturePicker"
+                            Title="都道府県を選択"
+                            SelectedIndexChanged="OnPrefectureChanged" />
+
+                        <Label Text="店舗" />
+                        <Picker
+                            x:Name="StorePicker"
+                            Title="店舗を選択"
+                            ItemDisplayBinding="{Binding Name}" />
+
+                        <Label
+                            x:Name="StoreCatalogStatusLabel"
+                            Text="店舗設定を読み込んでいます。"
+                            FontSize="12"
+                            TextColor="{StaticResource TextSecondary}" />
+
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                            <CheckBox
+                                x:Name="ManualUrlCheckBox"
+                                Grid.Column="0"
+                                CheckedChanged="OnManualUrlChanged" />
+                            <Label
+                                Grid.Column="1"
+                                Text="登録されていない店舗のURLを直接入力"
+                                VerticalTextAlignment="Center" />
+                        </Grid>
+                    </VerticalStackLayout>
+
+                    <VerticalStackLayout
+                        x:Name="ManualUrlPanel"
+                        IsVisible="False"
+                        Spacing="6">
+                        <Label
+                            x:Name="UrlLabel"
+                            Text="店舗の /tag/ を含むURL" />
+                        <Entry
+                            x:Name="UrlEntry"
+                            Keyboard="Url"
+                            ClearButtonVisibility="WhileEditing"
+                            Placeholder="https://min-repo.com/tag/店舗名/" />
+                    </VerticalStackLayout>
                 </VerticalStackLayout>
             </Border>
 
