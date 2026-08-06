@@ -14,8 +14,8 @@
     <ApplicationTitle>みんレポ抽出</ApplicationTitle>
     <ApplicationId>jp.minrepo.mobileextractor</ApplicationId>
     <!-- 修正版APKを既存端末へ上書き導入できるよう、表示版とVersionCodeを更新します。 -->
-    <ApplicationDisplayVersion>1.0.8</ApplicationDisplayVersion>
-    <ApplicationVersion>9</ApplicationVersion>
+    <ApplicationDisplayVersion>1.0.9</ApplicationDisplayVersion>
+    <ApplicationVersion>10</ApplicationVersion>
 
     <!-- Android 8.0以上。Pixel 7aはこの条件を満たします。 -->
     <SupportedOSPlatformVersion>26.0</SupportedOSPlatformVersion>

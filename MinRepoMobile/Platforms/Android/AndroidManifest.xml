@@ -3,10 +3,20 @@
   <!-- Release版でもページ取得と通信状態確認ができるよう、明示的に宣言します。 -->
   <uses-permission android:name="android.permission.INTERNET" />
   <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+  <uses-permission android:name="android.permission.WAKE_LOCK" />
 
   <!-- ファイルはアプリのキャッシュから共有するため、ストレージ権限は要求しません。 -->
   <application
       android:allowBackup="false"
       android:supportsRtl="true"
-      android:usesCleartextTraffic="false" />
+      android:usesCleartextTraffic="false">
+    <service
+        android:name="jp.minrepo.mobileextractor.ExtractionForegroundService"
+        android:exported="false"
+        android:stopWithTask="false"
+        android:foregroundServiceType="dataSync" />
+  </application>
 </manifest>

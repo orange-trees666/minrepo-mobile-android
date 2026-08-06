@@ -300,6 +300,7 @@
                         Clicked="OnShareClicked" />
 
                     <Button
+                        x:Name="SelfTestButton"
                         Text="通信なしで動作テスト"
                         BackgroundColor="#FFF2CC"
                         TextColor="#7F6000"
@@ -313,7 +314,7 @@
                 Stroke="#F0D98A"
                 StrokeShape="RoundRectangle 10">
                 <Label
-                    Text="注意: 取得中は画面を開いたままにしてください。出力は個人分析用です。引用・公開時はCSVの出典URLを併記してください。"
+                    Text="取得中は画面を閉じても継続し、進捗と結果を通知します。端末の強制停止・再起動時は中断されます。出力は個人分析用です。引用・公開時はCSVの出典URLを併記してください。"
                     FontSize="12"
                     TextColor="#6D5700" />
             </Border>

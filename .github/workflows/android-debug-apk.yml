@@ -1,6 +1,15 @@
 name: Build Android Debug APK
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "MinRepoMobile/**"
+      - ".github/workflows/android-debug-apk.yml"
+  pull_request:
+    paths:
+      - "MinRepoMobile/**"
+      - ".github/workflows/android-debug-apk.yml"
   workflow_dispatch:
 
 jobs:

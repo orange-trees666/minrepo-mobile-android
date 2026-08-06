@@ -19,12 +19,17 @@ public static class MauiProgram
         // 取得処理と画面をDIへ登録し、画面側で直接newしない構成にします。
         builder.Services.AddSingleton<StoreCatalogService>();
         builder.Services.AddSingleton<MinRepoExtractionService>();
+        builder.Services.AddSingleton<BackgroundExtractionCoordinator>();
+        builder.Services.AddSingleton<IBackgroundExtractionService,
+            Platforms.Android.AndroidBackgroundExtractionService>();
         builder.Services.AddSingleton<MainPage>();
 
 #if DEBUG
         builder.Logging.AddDebug();
 #endif
 
-        return builder.Build();
+        var app = builder.Build();
+        AppServiceProvider.Current = app.Services;
+        return app;
     }
 }

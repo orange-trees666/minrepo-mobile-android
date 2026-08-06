@@ -10,7 +10,7 @@ namespace MinRepoMobile.Services;
 public sealed class RespectfulMinRepoClient
 {
     private const string UserAgentProduct = "MinRepoMobileExtractor";
-    private const string UserAgentVersion = "1.0.8";
+    private const string UserAgentVersion = "1.0.9";
 
     private readonly HttpClient _httpClient;
     private readonly SemaphoreSlim _requestLock = new(1, 1);

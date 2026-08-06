@@ -1,5 +1,6 @@
 using MinRepoMobile.Models;
 using MinRepoMobile.Services;
+using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.ApplicationModel.DataTransfer;
 using Microsoft.Maui.Devices;
 using Microsoft.Maui.Networking;
@@ -13,6 +14,8 @@ public partial class MainPage : ContentPage
 
     private readonly MinRepoExtractionService _extractor;
     private readonly StoreCatalogService _storeCatalog;
+    private readonly IBackgroundExtractionService _backgroundExtraction;
+    private readonly BackgroundExtractionCoordinator _backgroundCoordinator;
     private CancellationTokenSource? _cancellation;
     private string? _latestZipPath;
     private DateOnly _selectedFromDate;
@@ -22,11 +25,16 @@ public partial class MainPage : ContentPage
 
     public MainPage(
         MinRepoExtractionService extractor,
-        StoreCatalogService storeCatalog)
+        StoreCatalogService storeCatalog,
+        IBackgroundExtractionService backgroundExtraction,
+        BackgroundExtractionCoordinator backgroundCoordinator)
     {
         InitializeComponent();
         _extractor = extractor;
         _storeCatalog = storeCatalog;
+        _backgroundExtraction = backgroundExtraction;
+        _backgroundCoordinator = backgroundCoordinator;
+        _backgroundCoordinator.StateChanged += OnBackgroundStateChanged;
 
         // 初期期間は直近30日とし、スマホで過度な件数を取得しない設定にします。
         _selectedToDate = DateOnly.FromDateTime(DateTime.Today);
@@ -46,6 +54,8 @@ public partial class MainPage : ContentPage
     /// </summary>
     private async void OnPageLoaded(object? sender, EventArgs e)
     {
+        ApplyBackgroundState(_backgroundCoordinator.Current, appendToLog: false);
+
         if (_storeCatalogLoaded)
         {
             return;
@@ -72,6 +82,7 @@ public partial class MainPage : ContentPage
 
             StoreCatalogStatusLabel.Text =
                 $"設定ファイルから{_allStores.Count:N0}店舗を読み込みました。";
+            SetRunningState(_backgroundExtraction.IsRunning);
         }
         catch (Exception ex)
         {
@@ -212,11 +223,21 @@ public partial class MainPage : ContentPage
             }
         }
 
-        await RunExtractionAsync(
-            cancellationToken => _extractor.ExtractAsync(
-                request!,
-                new Progress<ExtractionProgress>(UpdateProgress),
-                cancellationToken));
+        _latestZipPath = null;
+        ShareButton.IsEnabled = false;
+        LogEditor.Text = string.Empty;
+        ProgressBar.Progress = 0;
+
+        try
+        {
+            await _backgroundExtraction.StartAsync(request!);
+        }
+        catch (Exception ex)
+        {
+            ApplyBackgroundState(_backgroundCoordinator.Current);
+            AppendLog(ex.Message);
+            await DisplayAlertAsync("開始できませんでした", ex.Message, "OK");
+        }
     }
 
     private async void OnSelfTestClicked(object? sender, EventArgs e)
@@ -278,7 +299,16 @@ public partial class MainPage : ContentPage
     }
 
     private void OnCancelClicked(object? sender, EventArgs e)
-        => _cancellation?.Cancel();
+    {
+        if (_backgroundExtraction.IsRunning)
+        {
+            StatusLabel.Text = "中止を要求しています。";
+            _backgroundExtraction.Cancel();
+            return;
+        }
+
+        _cancellation?.Cancel();
+    }
 
     private async void OnShareClicked(object? sender, EventArgs e)
     {
@@ -407,6 +437,57 @@ public partial class MainPage : ContentPage
         AppendLog(progress.Message);
     }
 
+    private void OnBackgroundStateChanged(
+        object? sender,
+        BackgroundExtractionState state)
+    {
+        MainThread.BeginInvokeOnMainThread(() => ApplyBackgroundState(state));
+    }
+
+    private void ApplyBackgroundState(
+        BackgroundExtractionState state,
+        bool appendToLog = true)
+    {
+        StatusLabel.Text = state.Message;
+        ProgressBar.Progress = Math.Clamp(state.Progress, 0, 1);
+
+        if (appendToLog)
+        {
+            AppendLog(state.Message);
+        }
+
+        switch (state.Status)
+        {
+            case BackgroundExtractionStatus.Running:
+                SetRunningState(true);
+                break;
+
+            case BackgroundExtractionStatus.Completed:
+                _latestZipPath = state.ZipPath;
+                ShareButton.IsEnabled =
+                    !string.IsNullOrWhiteSpace(state.ZipPath) &&
+                    File.Exists(state.ZipPath);
+                if (appendToLog && !string.IsNullOrWhiteSpace(state.ZipPath))
+                {
+                    AppendLog($"結果: {Path.GetFileName(state.ZipPath)}");
+                    if (state.FailureCount > 0)
+                    {
+                        AppendLog(
+                            "00_取得失敗一覧.csvと取得情報.jsonに" +
+                            $"警告{state.FailureCount:N0}件を記録しました。");
+                    }
+                }
+                SetRunningState(false);
+                break;
+
+            case BackgroundExtractionStatus.Failed:
+            case BackgroundExtractionStatus.Cancelled:
+            case BackgroundExtractionStatus.Idle:
+                SetRunningState(false);
+                break;
+        }
+    }
+
     private void AppendLog(string message)
     {
         var timestamped = $"{DateTime.Now:HH:mm:ss}  {message}";
@@ -445,6 +526,7 @@ public partial class MainPage : ContentPage
         BonusDetailsCheckBox.IsEnabled = !isRunning;
         PartialOutputRadio.IsEnabled = !isRunning;
         StrictOutputRadio.IsEnabled = !isRunning;
+        SelfTestButton.IsEnabled = !isRunning;
     }
 
 }
