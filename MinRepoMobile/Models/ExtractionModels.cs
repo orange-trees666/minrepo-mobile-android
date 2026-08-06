@@ -45,7 +45,7 @@ public sealed record SlotRow(
     string Machine,
     int UnitNumber,
     int Ending,
-    int Difference,
+    int? Difference,
     int Games,
     int TotalSpins,
     double? PayoutRate,
@@ -62,7 +62,7 @@ public sealed record SlotRow(
 /// </summary>
 public sealed record MachineDetail(
     int UnitNumber,
-    int Difference,
+    int? Difference,
     int Games,
     int TotalSpins,
     double? PayoutRate,
@@ -74,8 +74,8 @@ public sealed record MachineDetail(
     string SourceUrl);
 
 /// <summary>
-/// 全台ページで差枚または出率が省略表示されていた台。
-/// 台番・機種・詳細URLを保持し、機種詳細ページから完全な値を復元します。
+/// 全台ページの必須列を解析できなかった台。
+/// 台番・機種・詳細URLを保持し、機種詳細ページから可能な範囲で復元します。
 /// </summary>
 public sealed record PendingSlotRow(
     string Store,
