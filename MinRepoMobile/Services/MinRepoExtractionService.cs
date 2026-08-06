@@ -195,10 +195,30 @@ public sealed class MinRepoExtractionService
                             "全台数照合"),
                         request.CreatePartialOutput);
                 }
-                var parsedTotalDifference =
-                    reportRows.Sum(row => row.Difference);
+                var missingDifferenceCount =
+                    reportRows.Count(row => row.Difference is null);
+                var missingPayoutRateCount =
+                    reportRows.Count(row => row.PayoutRate is null);
+                if (missingDifferenceCount > 0 || missingPayoutRateCount > 0)
+                {
+                    RegisterFailureOrThrow(
+                        failures,
+                        new ExtractionFailure(
+                            allMachinesUri.AbsoluteUri,
+                            "サイト上で「-」の項目があります。" +
+                            $"差枚={missingDifferenceCount}台、出率={missingPayoutRateCount}台。" +
+                            "台番・G数・BB・RB等は取得し、非掲載項目だけを空欄にしました。",
+                            "サイト非掲載項目"),
+                        request.CreatePartialOutput);
+                }
+
+                var hasCompleteDifferences = missingDifferenceCount == 0;
+                var parsedTotalDifference = hasCompleteDifferences
+                    ? reportRows.Sum(row => row.Difference!.Value)
+                    : (int?)null;
                 if (expectedTotalDifference is not null &&
-                    parsedTotalDifference != expectedTotalDifference.Value)
+                    parsedTotalDifference is not null &&
+                    parsedTotalDifference.Value != expectedTotalDifference.Value)
                 {
                     RegisterFailureOrThrow(
                         failures,
@@ -206,7 +226,7 @@ public sealed class MinRepoExtractionService
                             allMachinesUri.AbsoluteUri,
                             $"店舗全体の総差枚が一致しません。レポート記載=" +
                             $"{expectedTotalDifference.Value:+#;-#;0}枚、解析結果=" +
-                            $"{parsedTotalDifference:+#;-#;0}枚。",
+                            $"{parsedTotalDifference.Value:+#;-#;0}枚。",
                             "店舗全体・総差枚照合"),
                         request.CreatePartialOutput);
                 }
@@ -311,17 +331,17 @@ public sealed class MinRepoExtractionService
         if (expectedUnitCount != 3 ||
             expectedTotalDifference != 900 ||
             extractedReportDate != new DateOnly(2026, 7, 27) ||
-            report.Rows.Count != 2 ||
-            report.PendingRows.Count != 1 ||
+            report.Rows.Count != 3 ||
+            report.PendingRows.Count != 0 ||
             partialReport.Rows.Count != 2 ||
             partialIssues.Count != 1 ||
             !strictModeRejectedPartialData ||
             enrichedRows.Count != expectedUnitCount ||
-            enrichedRows.Sum(row => row.Difference) != expectedTotalDifference ||
-            enrichedRows.Count(row => row.Difference < 0) != 1 ||
-            testDetails[102].Difference != -300 ||
+            enrichedRows.Count(row => row.Difference is null) != 1 ||
+            testDetails[102].Difference is not null ||
             enrichedRows.Count(row => row.Machine == "機種A") != 2 ||
-            enrichedRows.Sum(row => row.Difference) != 900 ||
+            enrichedRows.Where(row => row.Difference is not null)
+                .Sum(row => row.Difference!.Value) != 1200 ||
             enrichedRows.Sum(row => row.Bb ?? 0) != 15 ||
             enrichedRows.Sum(row => row.Rb ?? 0) != 18)
         {
@@ -422,6 +442,7 @@ public sealed class MinRepoExtractionService
             !rawCsv.Contains(",101,", StringComparison.Ordinal) ||
             !rawCsv.Contains(",102,", StringComparison.Ordinal) ||
             !rawCsv.Contains(",113,", StringComparison.Ordinal) ||
+            !rawCsv.Contains("一部非掲載,差枚・出率", StringComparison.Ordinal) ||
             rawCsv.Contains(",999,", StringComparison.Ordinal))
         {
             throw new InvalidOperationException(
@@ -433,7 +454,8 @@ public sealed class MinRepoExtractionService
             .Split("店舗全体,全体", StringSplitOptions.None)
             .Length - 1;
         if (storeSummaryCount != 3 ||
-            !flexibleCsv.Contains(",900,", StringComparison.Ordinal))
+            !flexibleCsv.Contains("差枚取得台日数", StringComparison.Ordinal) ||
+            !flexibleCsv.Contains("差枚非掲載台日数", StringComparison.Ordinal))
         {
             throw new InvalidOperationException(
                 "内部テストの日・週・月または店舗全体の集計結果が一致しません。");
@@ -556,8 +578,8 @@ public sealed class MinRepoExtractionService
                     enriched[rowIndex] = ApplyMachineDetail(row, detail);
                 }
 
-                // 全台ページで「-」だけになっていた負数行を、機種詳細ページの
-                // 差枚・出率・BB/RBから完全な台別データとして復元します。
+                // 全台ページで必須列を解析できなかった行だけを、機種詳細ページの
+                // 取得可能な値から復元します。サイト非掲載値はnullのまま保持します。
                 foreach (var pending in report.PendingRows.Where(row =>
                     string.Equals(
                         row.DetailUrl,
@@ -626,10 +648,10 @@ public sealed class MinRepoExtractionService
     private static SlotRow ApplyMachineDetail(SlotRow row, MachineDetail detail)
         => row with
         {
-            Difference = detail.Difference,
+            Difference = detail.Difference ?? row.Difference,
             Games = detail.Games,
             TotalSpins = detail.TotalSpins,
-            PayoutRate = detail.PayoutRate,
+            PayoutRate = detail.PayoutRate ?? row.PayoutRate,
             Bb = detail.Bb,
             Rb = detail.Rb,
             CombinedRate = detail.CombinedRate,
@@ -816,7 +838,7 @@ public sealed class MinRepoExtractionService
             <th>BB</th><th>RB</th><th>合成</th><th>BB率</th><th>RB率</th>
           </tr>
           <tr><td>101</td><td>1,200</td><td>3,000</td><td>113.3%</td><td>10</td><td>8</td><td>1/167</td><td>1/300</td><td>1/375</td></tr>
-          <tr><td>102</td><td>-300</td><td>1,000</td><td>90%</td><td>3</td><td>4</td><td>1/143</td><td>1/333</td><td>1/250</td></tr>
+          <tr><td>102</td><td>-</td><td>1,000</td><td>-</td><td>3</td><td>4</td><td>1/143</td><td>1/333</td><td>1/250</td></tr>
         </table>
         <div>長い詳細一覧の途中にある広告領域</div>
         <table>
