@@ -241,7 +241,7 @@ public partial class MainPage : ContentPage
         {
             var continueExecution = await DisplayAlertAsync(
                 "長期間の取得には時間がかかります",
-                "マイナス差枚の復元やBB・RB取得では、機種別ページも順番に取得します。" +
+                "BB・RB取得を選んだ場合は、機種別ページも順番に取得します。" +
                 "1週間を超える場合は数十分かかる可能性があります。続行しますか？",
                 "実行",
                 "戻る");
