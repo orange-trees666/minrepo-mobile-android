@@ -198,12 +198,11 @@ public sealed partial class MinRepoHtmlParser
                     }
                 }
 
-                // みんレポの全台ページでは、マイナス差枚台の差枚・出率が
-                // AndroidのHTTP取得結果で「-」だけになる場合があります。
-                // 機種名・台番・機種詳細URLが取れていれば行を破棄せず保留し、
-                // 詳細ページの完全な値から後段で復元します。
+                // みんレポは一部の台について差枚・出率を「-」で非掲載にします。
+                // これは正常な掲載形式なので、nullとして台自体は必ず残します。
+                // G数など本当に解析できない必須値だけを詳細ページでの復元対象にします。
                 if (cells.Length <= largestRequiredColumn ||
-                    !TryParseInteger(cells[differenceColumn], out var difference) ||
+                    !TryParseOptionalInteger(cells[differenceColumn], out var difference) ||
                     !TryParseInteger(cells[gamesColumn], out var games) ||
                     !TryParsePercent(cells[payoutColumn], out var payoutRate))
                 {
@@ -437,7 +436,7 @@ public sealed partial class MinRepoHtmlParser
                 }
 
                 if (cells.Length <= largestRequiredColumn ||
-                    !TryParseInteger(cells[differenceColumn], out var difference) ||
+                    !TryParseOptionalInteger(cells[differenceColumn], out var difference) ||
                     !TryParseInteger(cells[gamesColumn], out var games) ||
                     !TryParsePercent(cells[payoutColumn], out var payoutRate) ||
                     !TryParseOptionalIntegerCell(cells, bbColumn, out var bb) ||

@@ -241,7 +241,7 @@
                         <VerticalStackLayout Grid.Column="1" Spacing="2">
                             <Label Text="BB・RB・合成確率まで取得" VerticalTextAlignment="Center" />
                             <Label
-                                Text="チェック時はBB・RBも保存します。マイナス差枚の復元では、チェックにかかわらず機種別ページを取得します。"
+                                Text="チェック時は機種別ページも取得し、掲載されているBB・RB・各確率を保存します。"
                                 FontSize="12"
                                 TextColor="{StaticResource TextSecondary}" />
                         </VerticalStackLayout>
@@ -263,7 +263,7 @@
                         GroupName="OutputMode"
                         IsChecked="True" />
                     <Label
-                        Text="ページや台番の一部を取得できなくても処理を続け、00_取得失敗一覧.csvへ記録します。"
+                        Text="ページの失敗やサイト非掲載項目があっても全台を可能な範囲で残し、00_取得失敗一覧.csvへ記録します。"
                         Margin="36,0,0,0"
                         FontSize="12"
                         TextColor="{StaticResource TextSecondary}" />
@@ -273,7 +273,7 @@
                         Content="1件でも取得できなければファイルを作成しない"
                         GroupName="OutputMode" />
                     <Label
-                        Text="全台数・総差枚・詳細データを完全に確認できた場合だけZIPを作成します。"
+                        Text="サイト非掲載項目を含め、取得・照合できない項目が1件もない場合だけZIPを作成します。"
                         Margin="36,0,0,0"
                         FontSize="12"
                         TextColor="{StaticResource TextSecondary}" />
