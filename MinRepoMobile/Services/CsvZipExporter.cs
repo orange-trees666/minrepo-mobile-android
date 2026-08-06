@@ -611,6 +611,7 @@ public sealed class CsvZipExporter
             < 110 => "105%以上110%未満",
             _ => "110%以上",
         };
+    }
 
     private static string GetRowStatus(SlotRow row)
         => row.Difference is not null && row.PayoutRate is not null
@@ -630,7 +631,6 @@ public sealed class CsvZipExporter
         }
 
         return string.Join("・", fields);
-    }
     }
 
     private static int PayoutBandOrder(string band)
