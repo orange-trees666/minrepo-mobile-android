@@ -21,7 +21,8 @@ PixelなどのAndroid端末だけで、みんレポの公開レポートを取�
 - 機種ごとの中央値、ばらつき、プラス日率、勝率、稼働、突出台依存率等を評価
 - 取得失敗時に「作成しない」または「取得済み分で作成」を画面から選択
 - 部分出力では、ページ・台番・検証項目ごとの失敗をCSVへ記録して処理を継続
-- 取得中の進捗表示と中止
+- Androidのフォアグラウンドサービスによるバックグラウンド取得
+- 取得中の進捗表示と中止、完了・警告・失敗・中止の端末通知
 - 10種類のCSVと取得情報JSONをZIP化
 - Androidの共有画面からFilesやGoogle Driveへ保存
 - ネット接続を使わない3台・2機種の動作テスト
@@ -37,8 +38,9 @@ PixelなどのAndroid端末だけで、みんレポの公開レポートを取�
 5. BB・RB等も必要なら`BB・RB・合成確率まで取得`を選びます。
 6. 取得失敗時の出力方法を選びます。
 7. `取得を開始`を押します。
-8. 完了後、`結果ZIPを保存・共有`を押します。
-9. Androidの共有画面でFiles、Google Drive等を選びます。
+8. 初回はAndroidの通知を許可します。取得中は別アプリへ切り替えたり、画面を消したりできます。
+9. 完了通知を開き、`結果ZIPを保存・共有`を押します。
+10. Androidの共有画面でFiles、Google Drive等を選びます。
 
 日付欄または`開始日を選択`・`終了日を選択`ボタンからAndroidの日付画面を開けます。
 確定した日付はボタン表示と内部の取得条件の両方へ反映されます。
@@ -55,9 +57,14 @@ PixelなどのAndroid端末だけで、みんレポの公開レポートを取�
 店舗を追加する場合は、`stores`配列へ`id`、`prefecture`、`name`、`url`、
 `enabled`を持つ要素を追加します。
 
-取得中は画面を開いたままにしてください。アプリは実行中だけ画面消灯を抑止します。
+通常の取得はAndroidの`dataSync`フォアグラウンドサービスで実行します。
+取得中は通知欄に進捗を表示し、画面消灯やアプリ切替後も処理を継続します。
+完了、警告あり、失敗、中止はそれぞれ結果通知で確認できます。
+通信なしの動作テストだけは画面上で実行するため、テスト中は画面点灯を維持します。
 BB・RB等の詳細取得は日別・機種別ページにもアクセスするため、日数と機種数に
 比例して時間と通信量が増えます。長期間を一度に取得せず、まず1週間程度で確認してください。
+Android 15以降の`dataSync`継続時間制限へ余裕を持たせるため、1回の取得は
+5時間30分で停止し、失敗として通知します。
 
 ## 出力ファイル
 
@@ -130,12 +137,11 @@ Windows PCとVisual Studio、またはGitHub Actionsなどのビルド環境が�
 Visual Studioでプロジェクトを右クリックし、`発行`からAndroidの
 アドホック配布を選択します。APKを端末へ渡し、Pixel 7a側でインストールします。
 
-CLIを使用する場合の例は次のとおりです。パスワードはコマンドへ直接書かず、
-環境変数を使ってください。
+CLIを使用する場合の例は次のとおりです。実行前に、OSの安全な方法で
+`MINREPO_KEY_PASS`環境変数を設定してください。パスワードはファイルや
+コマンド履歴へ保存しないでください。
 
 ```powershell
-$env:MINREPO_KEY_PASS = "自分で決めたパスワード"
-
 dotnet publish .\MinRepoMobile\MinRepoMobile.csproj `
   -f net10.0-android `
   -c Release `
@@ -153,6 +159,9 @@ dotnet publish .\MinRepoMobile\MinRepoMobile.csproj `
 ## 通信と端末権限
 
 - 通信先はHTTPSの`min-repo.com`だけに制限しています。
+- Android 13以降では、進捗・完了・失敗通知のため通知権限を要求します。
+- バックグラウンド取得には`FOREGROUND_SERVICE`と`FOREGROUND_SERVICE_DATA_SYNC`を使用します。
+- 画面消灯中にCPU処理を継続する間だけ、時間制限付きの部分WakeLockを使用します。
 - `robots.txt`を確認できない場合や取得が禁止されている場合は停止します。
 - リクエスト間隔は画面から5～60秒で指定でき、初期値は5秒です。
 - 最大100レポートに制限しています。
@@ -169,7 +178,8 @@ dotnet publish .\MinRepoMobile\MinRepoMobile.csproj `
 - サイト構造や利用条件が変更された場合は、解析できなくなる可能性があります。
 - みんレポは掲載値が独自調査値で、実値と異なる可能性があると説明しています。
 - 引用・外部公開時は、CSVの`出典URL`を併記してください。
-- アプリを閉じたり、画面を消したり、Androidがプロセスを終了した場合は処理が中断されます。
+- 画面消灯、ホーム画面への移動、履歴画面からの通常の終了では取得を継続します。
+- Android設定からの強制停止、端末再起動、OSによる強制終了、5時間30分超過では中断します。
 
 ## 主な構成
 
@@ -178,10 +188,11 @@ MinRepoMobile/
 ├─ MainPage.xaml / MainPage.xaml.cs        画面と操作
 ├─ Models/ExtractionModels.cs              入出力モデル
 ├─ Services/MinRepoExtractionService.cs    処理全体の制御
+├─ Services/BackgroundExtractionCoordinator.cs  バックグラウンド状態の共有
 ├─ Services/RespectfulMinRepoClient.cs     通信・robots・待機・再試行
 ├─ Services/MinRepoHtmlParser.cs           HTML解析
 ├─ Services/CsvZipExporter.cs              集計・CSV・ZIP
-└─ Platforms/Android/                      Android権限と共有設定
+└─ Platforms/Android/                      フォアグラウンドサービス、通知、共有設定
 ```
 
 ## 動作テスト
