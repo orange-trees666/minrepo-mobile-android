@@ -126,8 +126,9 @@ public partial class MainPage : ContentPage
 
     private void UpdateDateButtonText()
     {
-        FromDateButton.Text = $"開始日: {_selectedFromDate:yyyy-MM-dd}";
-        ToDateButton.Text = $"終了日: {_selectedToDate:yyyy-MM-dd}";
+        // 日付そのものは直上のDatePickerに表示されるため、狭い画面で省略されない短い文言にします。
+        FromDateButton.Text = "開始日を変更";
+        ToDateButton.Text = "終了日を変更";
     }
 
     private void OnModeChanged(object? sender, CheckedChangedEventArgs e)
@@ -159,6 +160,8 @@ public partial class MainPage : ContentPage
         if (PrefecturePicker.SelectedItem is not string prefecture)
         {
             StorePicker.ItemsSource = null;
+            StorePicker.SelectedIndex = -1;
+            UpdateStoreSelectionSummary();
             return;
         }
 
@@ -171,6 +174,30 @@ public partial class MainPage : ContentPage
 
         StorePicker.ItemsSource = stores;
         StorePicker.SelectedIndex = stores.Length > 0 ? 0 : -1;
+        UpdateStoreSelectionSummary();
+    }
+
+    /// <summary>
+    /// 店舗Pickerの選択変更を通常のLabelへも反映します。
+    /// Picker本体の描画色に端末固有の問題があっても、選択内容を確認できます。
+    /// </summary>
+    private void OnStoreChanged(object? sender, EventArgs e)
+        => UpdateStoreSelectionSummary();
+
+    private void UpdateStoreSelectionSummary()
+    {
+        if (ManualUrlCheckBox.IsChecked)
+        {
+            SelectedStoreSummaryLabel.Text = "選択中: URL直接入力";
+            return;
+        }
+
+        var prefecture = PrefecturePicker.SelectedItem as string;
+        var store = StorePicker.SelectedItem as StoreDefinition;
+        SelectedStoreSummaryLabel.Text =
+            !string.IsNullOrWhiteSpace(prefecture) && store is not null
+                ? $"選択中: {prefecture} / {store.Name}"
+                : "選択中: 店舗を選択してください。";
     }
 
     /// <summary>
@@ -188,6 +215,7 @@ public partial class MainPage : ContentPage
         ManualUrlPanel.IsVisible = e.Value;
         PrefecturePicker.IsEnabled = !e.Value;
         StorePicker.IsEnabled = !e.Value;
+        UpdateStoreSelectionSummary();
     }
 
     private async void OnStartClicked(object? sender, EventArgs e)

@@ -53,7 +53,25 @@
                         <Picker
                             x:Name="StorePicker"
                             Title="店舗を選択"
-                            ItemDisplayBinding="{Binding Name}" />
+                            ItemDisplayBinding="{Binding Name}"
+                            SelectedIndexChanged="OnStoreChanged" />
+
+                        <!--
+                        Android標準Pickerの描画に問題があっても選択結果を確認できるよう、
+                        都道府県名と店舗名を通常のLabelにも表示します。
+                        -->
+                        <Border
+                            Padding="10,8"
+                            BackgroundColor="#EAF2F8"
+                            Stroke="#B8CCE0"
+                            StrokeShape="RoundRectangle 8">
+                            <Label
+                                x:Name="SelectedStoreSummaryLabel"
+                                Text="選択中: 店舗設定を読み込んでいます。"
+                                FontAttributes="Bold"
+                                LineBreakMode="WordWrap"
+                                TextColor="{StaticResource Primary}" />
+                        </Border>
 
                         <Label
                             x:Name="StoreCatalogStatusLabel"
@@ -98,7 +116,7 @@
                 <VerticalStackLayout Spacing="12">
                     <Label Text="2. 期間・取得上限" FontAttributes="Bold" FontSize="17" />
 
-                    <Grid ColumnDefinitions="*,*" ColumnSpacing="12" RowDefinitions="Auto,Auto,Auto">
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="10" RowDefinitions="Auto,Auto,Auto">
                         <Label Grid.Row="0" Grid.Column="0" Text="開始日" />
                         <Label Grid.Row="0" Grid.Column="1" Text="終了日" />
                         <DatePicker
@@ -118,7 +136,7 @@
                             Grid.Row="2"
                             Grid.Column="0"
                             Margin="0,6,0,0"
-                            Text="開始日を選択"
+                            Text="開始日を変更"
                             BackgroundColor="#E7ECF2"
                             TextColor="{StaticResource TextPrimary}"
                             Clicked="OnOpenFromDateClicked" />
@@ -127,7 +145,7 @@
                             Grid.Row="2"
                             Grid.Column="1"
                             Margin="0,6,0,0"
-                            Text="終了日を選択"
+                            Text="終了日を変更"
                             BackgroundColor="#E7ECF2"
                             TextColor="{StaticResource TextPrimary}"
                             Clicked="OnOpenToDateClicked" />
@@ -179,25 +197,40 @@
                     <Label Text="3. 集計条件" FontAttributes="Bold" FontSize="17" />
 
                     <Label Text="集計期間（複数選択可）" />
-                    <FlexLayout Direction="Row" Wrap="Wrap">
-                        <CheckBox x:Name="DayCheckBox" IsChecked="True" />
-                        <Label Text="日毎" VerticalTextAlignment="Center" Margin="0,0,12,0" />
-                        <CheckBox x:Name="WeekCheckBox" IsChecked="True" />
-                        <Label Text="週毎（月曜始まり）" VerticalTextAlignment="Center" Margin="0,0,12,0" />
-                        <CheckBox x:Name="MonthCheckBox" IsChecked="True" />
-                        <Label Text="月毎" VerticalTextAlignment="Center" />
+                    <FlexLayout Direction="Row" Wrap="Wrap" AlignItems="Center">
+                        <!-- CheckBoxと名称を同じコンテナーへ入れ、改行時の分離を防ぎます。 -->
+                        <HorizontalStackLayout Margin="0,0,12,4" Spacing="0">
+                            <CheckBox x:Name="DayCheckBox" IsChecked="True" />
+                            <Label Text="日毎" VerticalTextAlignment="Center" />
+                        </HorizontalStackLayout>
+                        <HorizontalStackLayout Margin="0,0,12,4" Spacing="0">
+                            <CheckBox x:Name="WeekCheckBox" IsChecked="True" />
+                            <Label Text="週毎（月曜始まり）" VerticalTextAlignment="Center" />
+                        </HorizontalStackLayout>
+                        <HorizontalStackLayout Margin="0,0,12,4" Spacing="0">
+                            <CheckBox x:Name="MonthCheckBox" IsChecked="True" />
+                            <Label Text="月毎" VerticalTextAlignment="Center" />
+                        </HorizontalStackLayout>
                     </FlexLayout>
 
                     <Label Text="集計キー（複数選択可）" />
-                    <FlexLayout Direction="Row" Wrap="Wrap">
-                        <CheckBox x:Name="MachineKeyCheckBox" IsChecked="True" />
-                        <Label Text="機種別" VerticalTextAlignment="Center" Margin="0,0,12,0" />
-                        <CheckBox x:Name="PayoutKeyCheckBox" IsChecked="True" />
-                        <Label Text="出率帯別" VerticalTextAlignment="Center" Margin="0,0,12,0" />
-                        <CheckBox x:Name="EndingKeyCheckBox" IsChecked="True" />
-                        <Label Text="末尾別" VerticalTextAlignment="Center" Margin="0,0,12,0" />
-                        <CheckBox x:Name="InstalledKeyCheckBox" IsChecked="True" />
-                        <Label Text="設置台数別" VerticalTextAlignment="Center" />
+                    <FlexLayout Direction="Row" Wrap="Wrap" AlignItems="Center">
+                        <HorizontalStackLayout Margin="0,0,12,4" Spacing="0">
+                            <CheckBox x:Name="MachineKeyCheckBox" IsChecked="True" />
+                            <Label Text="機種別" VerticalTextAlignment="Center" />
+                        </HorizontalStackLayout>
+                        <HorizontalStackLayout Margin="0,0,12,4" Spacing="0">
+                            <CheckBox x:Name="PayoutKeyCheckBox" IsChecked="True" />
+                            <Label Text="出率帯別" VerticalTextAlignment="Center" />
+                        </HorizontalStackLayout>
+                        <HorizontalStackLayout Margin="0,0,12,4" Spacing="0">
+                            <CheckBox x:Name="EndingKeyCheckBox" IsChecked="True" />
+                            <Label Text="末尾別" VerticalTextAlignment="Center" />
+                        </HorizontalStackLayout>
+                        <HorizontalStackLayout Margin="0,0,12,4" Spacing="0">
+                            <CheckBox x:Name="InstalledKeyCheckBox" IsChecked="True" />
+                            <Label Text="設置台数別" VerticalTextAlignment="Center" />
+                        </HorizontalStackLayout>
                     </FlexLayout>
 
                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
@@ -231,7 +264,7 @@
                         IsChecked="True" />
                     <Label
                         Text="ページや台番の一部を取得できなくても処理を続け、00_取得失敗一覧.csvへ記録します。"
-                        Margin="36,-8,0,0"
+                        Margin="36,0,0,0"
                         FontSize="12"
                         TextColor="{StaticResource TextSecondary}" />
 
@@ -241,7 +274,7 @@
                         GroupName="OutputMode" />
                     <Label
                         Text="全台数・総差枚・詳細データを完全に確認できた場合だけZIPを作成します。"
-                        Margin="36,-8,0,0"
+                        Margin="36,0,0,0"
                         FontSize="12"
                         TextColor="{StaticResource TextSecondary}" />
                 </VerticalStackLayout>
@@ -288,8 +321,7 @@
                         HeightRequest="150"
                         IsReadOnly="True"
                         AutoSize="Disabled"
-                        BackgroundColor="#F2F5F8"
-                        TextColor="{StaticResource TextSecondary}" />
+                        SemanticProperties.Description="取得処理の進捗ログ" />
 
                     <Button
                         x:Name="ShareButton"

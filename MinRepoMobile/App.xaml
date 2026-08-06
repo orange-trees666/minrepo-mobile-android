@@ -9,6 +9,7 @@
             <Color x:Key="Accent">#2F75B5</Color>
             <Color x:Key="Surface">#F6F8FB</Color>
             <Color x:Key="Border">#D5DEE8</Color>
+            <Color x:Key="ControlBackground">#F2F5F8</Color>
             <Color x:Key="TextPrimary">#17212B</Color>
             <Color x:Key="TextSecondary">#5C6975</Color>
 
@@ -18,9 +19,45 @@
             </Style>
 
             <Style TargetType="Entry">
-                <Setter Property="BackgroundColor" Value="White" />
+                <!--
+                Androidの端末テーマに左右されず、白いカード上でも入力値を読めるようにします。
+                -->
+                <Setter Property="BackgroundColor" Value="{StaticResource ControlBackground}" />
                 <Setter Property="TextColor" Value="{StaticResource TextPrimary}" />
                 <Setter Property="PlaceholderColor" Value="#8B98A5" />
+                <Setter Property="MinimumHeightRequest" Value="48" />
+            </Style>
+
+            <Style TargetType="Picker">
+                <!--
+                Androidのダークテーマでは未指定のPicker文字色が白系になる場合があります。
+                選択値と未選択時のTitleを明示し、白背景との同化を防止します。
+                -->
+                <Setter Property="BackgroundColor" Value="{StaticResource ControlBackground}" />
+                <Setter Property="TextColor" Value="{StaticResource TextPrimary}" />
+                <Setter Property="TitleColor" Value="{StaticResource TextSecondary}" />
+                <Setter Property="MinimumHeightRequest" Value="48" />
+                <Setter Property="HorizontalOptions" Value="Fill" />
+            </Style>
+
+            <Style TargetType="DatePicker">
+                <Setter Property="BackgroundColor" Value="{StaticResource ControlBackground}" />
+                <Setter Property="TextColor" Value="{StaticResource TextPrimary}" />
+                <Setter Property="MinimumHeightRequest" Value="48" />
+                <Setter Property="HorizontalOptions" Value="Fill" />
+            </Style>
+
+            <Style TargetType="Editor">
+                <Setter Property="BackgroundColor" Value="{StaticResource ControlBackground}" />
+                <Setter Property="TextColor" Value="{StaticResource TextSecondary}" />
+            </Style>
+
+            <Style TargetType="RadioButton">
+                <Setter Property="TextColor" Value="{StaticResource TextPrimary}" />
+            </Style>
+
+            <Style TargetType="CheckBox">
+                <Setter Property="Color" Value="{StaticResource Accent}" />
             </Style>
 
             <Style TargetType="Button">

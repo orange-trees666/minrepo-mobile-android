@@ -15,6 +15,11 @@ public partial class App : Application
         // StaticResourceがまだ存在しないため、Android起動時に発生した
         // XAML例外がJavaProxyThrowableとして表示される場合があります。
         InitializeComponent();
+
+        // 現在の画面は白いカードを基準にしたライト配色です。
+        // Android本体がダークテーマでもPicker等のネイティブ部品だけ白文字に変わらないよう、
+        // アプリ全体をライトテーマへ固定して全コントロールのコントラストを統一します。
+        UserAppTheme = AppTheme.Light;
         _services = services;
     }
 
