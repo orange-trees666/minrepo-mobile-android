@@ -217,7 +217,10 @@ public sealed partial class MinRepoHtmlParser
                         if (!pendingByUnitNumber.ContainsKey(unitNumber) &&
                             !rowsByUnitNumber.ContainsKey(unitNumber))
                         {
-                            var pending = new PendingSlotRow(
+                            // 後続のRemoveで受け取る変数と名前を分けます。
+                            // C#では内側のブロックであっても、同じ外側スコープ内に
+                            // 同名のローカル変数があるとCS0136になるためです。
+                            var pendingRow = new PendingSlotRow(
                                 Store: store,
                                 ReportDate: reportDate,
                                 Machine: machine,
@@ -226,8 +229,8 @@ public sealed partial class MinRepoHtmlParser
                                 SourceUrl: sourceUri.AbsoluteUri,
                                 DetailUrl: detailUrl,
                                 OriginalCells: joinedCells);
-                            pendingByUnitNumber.Add(unitNumber, pending);
-                            pendingRows.Add(pending);
+                            pendingByUnitNumber.Add(unitNumber, pendingRow);
+                            pendingRows.Add(pendingRow);
                         }
 
                         continue;
@@ -296,9 +299,11 @@ public sealed partial class MinRepoHtmlParser
 
                 rowsByUnitNumber.Add(unitNumber, parsedRow);
                 rows.Add(parsedRow);
-                if (pendingByUnitNumber.Remove(unitNumber, out var pending))
+                if (pendingByUnitNumber.Remove(
+                        unitNumber,
+                        out var removedPendingRow))
                 {
-                    pendingRows.Remove(pending);
+                    pendingRows.Remove(removedPendingRow);
                 }
             }
         }
