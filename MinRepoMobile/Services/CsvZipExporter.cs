@@ -59,9 +59,12 @@ public sealed class CsvZipExporter
                 aggregationPeriods = periods.ToString(),
                 aggregationKeys = keys.ToString(),
                 bonusDetailRows = rows.Count(row => row.Bb is not null || row.Rb is not null),
+                differencePublishedRows = rows.Count(row => row.Difference is not null),
+                differenceNotPublishedRows = rows.Count(row => row.Difference is null),
                 failures,
                 notice =
                     "みんレポ掲載値は同サイトの独自調査値で、実際の数値と異なる可能性があります。" +
+                    "サイト上で「-」の項目は推測せず空欄にし、欠損を含む集計の差枚指標も空欄にしています。" +
                     "引用時は各CSVの出典URLを併記してください。",
             };
             await File.WriteAllTextAsync(
@@ -131,7 +134,8 @@ public sealed class CsvZipExporter
             [
                 "店舗", "日付", "曜日", "機種", "台番", "末尾", "差枚",
                 "G数", "総回転数", "出率(%)", "BB", "RB", "合成",
-                "BB率", "RB率", "日別出典URL", "機種詳細URL",
+                "BB率", "RB率", "取得状態", "未取得項目",
+                "日別出典URL", "機種詳細URL",
             ],
             rows
                 .OrderBy(row => row.Store)
@@ -155,6 +159,8 @@ public sealed class CsvZipExporter
                     row.CombinedRate,
                     row.BbRate,
                     row.RbRate,
+                    GetRowStatus(row),
+                    GetMissingFields(row),
                     row.SourceUrl,
                     row.DetailUrl,
                 }));
@@ -220,7 +226,8 @@ public sealed class CsvZipExporter
             path,
             [
                 "店舗", "日付", "1機種あたり設置台数", "機種数",
-                "対象台数", "稼働台数", "総差枚", "平均差枚", "平均G数",
+                "対象台数", "稼働台数", "差枚取得台数", "差枚非掲載台数",
+                "総差枚", "平均差枚", "平均G数",
                 "勝ち台数", "勝率(%)", "計算出率(%)", "出典URL",
             ],
             records);
@@ -275,6 +282,8 @@ public sealed class CsvZipExporter
                     group.Count(),
                     summary.UnitCount,
                     summary.ActiveCount,
+                    summary.KnownDifferenceCount,
+                    summary.MissingDifferenceCount,
                     summary.TotalDifference,
                     summary.AverageDifference,
                     summary.AverageGames,
@@ -289,7 +298,8 @@ public sealed class CsvZipExporter
             path,
             [
                 "店舗", "1機種あたり設置台数", "対象日数", "機種日数",
-                "台日数", "稼働台日数", "総差枚", "1台1日平均差枚",
+                "台日数", "稼働台日数", "差枚取得台日数", "差枚非掲載台日数",
+                "総差枚", "1台1日平均差枚",
                 "1台1日平均G数", "勝ち台日数", "勝率(%)",
                 "計算出率(%)", "出典URL",
             ],
@@ -399,7 +409,8 @@ public sealed class CsvZipExporter
             path,
             [
                 "店舗", "集計期間", "期間開始", "期間終了", "集計キー", "キー値",
-                "対象日数", "台日数", "稼働台日数", "総差枚", "平均差枚",
+                "対象日数", "台日数", "稼働台日数",
+                "差枚取得台日数", "差枚非掲載台日数", "総差枚", "平均差枚",
                 "中央値差枚", "差枚標準偏差", "合計G数", "1台日平均G数",
                 "総回転数", "BB合計", "RB合計", "詳細取得台日数", "合成実績",
                 "平均出率(%)", "勝ち台日数", "勝率(%)", "105%以上率(%)",
@@ -421,17 +432,21 @@ public sealed class CsvZipExporter
                 var values = group.ToList();
                 var summary = CalculateSummary(values);
                 var dayGroups = values.GroupBy(row => row.ReportDate).ToList();
-                var positiveDays = dayGroups.Count(day => day.Sum(row => row.Difference) > 0);
+                int? positiveDays = summary.MissingDifferenceCount == 0
+                    ? dayGroups.Count(day => day.Sum(row => row.Difference!.Value) > 0)
+                    : null;
                 var positiveDifferences = values
-                    .Where(row => row.Difference > 0)
-                    .Select(row => row.Difference)
+                    .Where(row => row.Difference is > 0)
+                    .Select(row => row.Difference!.Value)
                     .ToList();
                 var positiveTotal = positiveDifferences.Sum();
-                var topPositiveShare = positiveTotal == 0
+                var topPositiveShare = summary.MissingDifferenceCount > 0 || positiveTotal == 0
                     ? null
                     : (double?)positiveDifferences.Max() / positiveTotal * 100;
                 var combined = CombinedActual(summary);
-                var sufficient = dayGroups.Count >= 5 && summary.ActiveCount >= 20
+                var sufficient = summary.MissingDifferenceCount > 0
+                    ? "差枚不足"
+                    : dayGroups.Count >= 5 && summary.ActiveCount >= 20
                     ? "十分"
                     : "少ない";
 
@@ -442,13 +457,17 @@ public sealed class CsvZipExporter
                     dayGroups.Count,
                     summary.UnitCount,
                     summary.ActiveCount,
+                    summary.KnownDifferenceCount,
+                    summary.MissingDifferenceCount,
                     (double)summary.UnitCount / dayGroups.Count,
                     summary.TotalDifference,
                     summary.AverageDifference,
                     summary.MedianDifference,
                     summary.StandardDeviation,
                     positiveDays,
-                    (double)positiveDays / dayGroups.Count * 100,
+                    positiveDays is null
+                        ? null
+                        : (double?)positiveDays.Value / dayGroups.Count * 100,
                     summary.Wins,
                     summary.WinRate,
                     summary.TotalGames,
@@ -471,6 +490,7 @@ public sealed class CsvZipExporter
             path,
             [
                 "店舗", "機種", "対象日数", "台日数", "稼働台日数",
+                "差枚取得台日数", "差枚非掲載台日数",
                 "平均設置台数", "総差枚", "平均差枚", "中央値差枚",
                 "差枚標準偏差", "プラス日数", "機種プラス日率(%)",
                 "勝ち台日数", "勝率(%)", "合計G数", "平均G数",
@@ -503,6 +523,8 @@ public sealed class CsvZipExporter
             values.Select(row => row.ReportDate).Distinct().Count(),
             summary.UnitCount,
             summary.ActiveCount,
+            summary.KnownDifferenceCount,
+            summary.MissingDifferenceCount,
             summary.TotalDifference,
             summary.AverageDifference,
             summary.MedianDifference,
@@ -589,6 +611,26 @@ public sealed class CsvZipExporter
             < 110 => "105%以上110%未満",
             _ => "110%以上",
         };
+
+    private static string GetRowStatus(SlotRow row)
+        => row.Difference is not null && row.PayoutRate is not null
+            ? "取得済み"
+            : "一部非掲載";
+
+    private static string GetMissingFields(SlotRow row)
+    {
+        var fields = new List<string>();
+        if (row.Difference is null)
+        {
+            fields.Add("差枚");
+        }
+        if (row.PayoutRate is null)
+        {
+            fields.Add("出率");
+        }
+
+        return string.Join("・", fields);
+    }
     }
 
     private static int PayoutBandOrder(string band)
@@ -625,6 +667,8 @@ public sealed class CsvZipExporter
             .. keyValues,
             summary.UnitCount,
             summary.ActiveCount,
+            summary.KnownDifferenceCount,
+            summary.MissingDifferenceCount,
             summary.TotalDifference,
             summary.AverageDifference,
             summary.AverageGames,
@@ -647,6 +691,8 @@ public sealed class CsvZipExporter
             materialized.Select(row => row.ReportDate).Distinct().Count(),
             summary.UnitCount,
             summary.ActiveCount,
+            summary.KnownDifferenceCount,
+            summary.MissingDifferenceCount,
             summary.TotalDifference,
             summary.AverageDifference,
             summary.AverageGames,
@@ -661,28 +707,36 @@ public sealed class CsvZipExporter
     {
         var values = source.ToList();
         var unitCount = values.Count;
-        var totalDifference = values.Sum(row => row.Difference);
+        var knownDifferences = values
+            .Where(row => row.Difference is not null)
+            .Select(row => row.Difference!.Value)
+            .ToArray();
+        var knownDifferenceCount = knownDifferences.Length;
+        var missingDifferenceCount = unitCount - knownDifferenceCount;
+        var hasCompleteDifferences = missingDifferenceCount == 0;
+        int? totalDifference = hasCompleteDifferences
+            ? knownDifferences.Sum()
+            : null;
         var totalGames = values.Sum(row => row.Games);
         var totalSpins = values.Sum(row => row.TotalSpins);
-        var wins = values.Count(row => row.Difference > 0);
-        var sortedDifferences = values
-            .Select(row => row.Difference)
-            .Order()
-            .ToArray();
-        var medianDifference = sortedDifferences.Length == 0
-            ? 0
+        int? wins = hasCompleteDifferences
+            ? knownDifferences.Count(difference => difference > 0)
+            : null;
+        var sortedDifferences = knownDifferences.Order().ToArray();
+        double? medianDifference = !hasCompleteDifferences || sortedDifferences.Length == 0
+            ? null
             : sortedDifferences.Length % 2 == 1
                 ? sortedDifferences[sortedDifferences.Length / 2]
                 : (
                     sortedDifferences[sortedDifferences.Length / 2 - 1] +
                     sortedDifferences[sortedDifferences.Length / 2]) / 2d;
-        var averageDifference = unitCount == 0
-            ? 0
-            : (double)totalDifference / unitCount;
-        var variance = unitCount == 0
-            ? 0
-            : values.Sum(row => Math.Pow(row.Difference - averageDifference, 2)) /
-              unitCount;
+        double? averageDifference = !hasCompleteDifferences || unitCount == 0
+            ? null
+            : (double)totalDifference!.Value / unitCount;
+        double? variance = averageDifference is null
+            ? null
+            : knownDifferences.Sum(difference =>
+                Math.Pow(difference - averageDifference.Value, 2)) / unitCount;
         var knownRates = values
             .Where(row => row.PayoutRate is not null)
             .Select(row => row.PayoutRate!.Value)
@@ -694,24 +748,28 @@ public sealed class CsvZipExporter
         return new AggregateSummary(
             UnitCount: unitCount,
             ActiveCount: values.Count(row => row.Games > 0),
+            KnownDifferenceCount: knownDifferenceCount,
+            MissingDifferenceCount: missingDifferenceCount,
             TotalDifference: totalDifference,
             AverageDifference: averageDifference,
             MedianDifference: medianDifference,
-            StandardDeviation: Math.Sqrt(variance),
+            StandardDeviation: variance is null ? null : Math.Sqrt(variance.Value),
             TotalGames: totalGames,
             AverageGames: unitCount == 0 ? 0 : (double)totalGames / unitCount,
             TotalSpins: totalSpins,
             DetailSpins: detailValues.Sum(row => row.TotalSpins),
             Wins: wins,
-            WinRate: unitCount == 0 ? 0 : (double)wins / unitCount * 100,
-            CalculatedRate: totalGames == 0
+            WinRate: wins is null || unitCount == 0
                 ? null
-                : 100d + (double)totalDifference / (totalGames * 3d) * 100d,
-            AveragePayoutRate: knownRateCount == 0 ? null : knownRates.Average(),
-            Rate105OrMore: knownRateCount == 0
+                : (double?)wins.Value / unitCount * 100,
+            CalculatedRate: totalGames == 0 || totalDifference is null
+                ? null
+                : 100d + (double)totalDifference.Value / (totalGames * 3d) * 100d,
+            AveragePayoutRate: knownRateCount != unitCount ? null : knownRates.Average(),
+            Rate105OrMore: knownRateCount != unitCount
                 ? null
                 : (double)knownRates.Count(rate => rate >= 105) / knownRateCount * 100,
-            Rate110OrMore: knownRateCount == 0
+            Rate110OrMore: knownRateCount != unitCount
                 ? null
                 : (double)knownRates.Count(rate => rate >= 110) / knownRateCount * 100,
             BbTotal: values.Sum(row => row.Bb ?? 0),
@@ -728,7 +786,8 @@ public sealed class CsvZipExporter
     private static string[] DailyHeaders(string axis)
         =>
         [
-            "店舗", "日付", axis, "対象台数", "稼働台数", "総差枚",
+            "店舗", "日付", axis, "対象台数", "稼働台数",
+            "差枚取得台数", "差枚非掲載台数", "総差枚",
             "平均差枚", "平均G数", "勝ち台数", "勝率(%)",
             "計算出率(%)", "出典URL",
         ];
@@ -736,7 +795,8 @@ public sealed class CsvZipExporter
     private static string[] PeriodHeaders(string axis)
         =>
         [
-            "店舗", axis, "対象日数", "台日数", "稼働台日数", "総差枚",
+            "店舗", axis, "対象日数", "台日数", "稼働台日数",
+            "差枚取得台日数", "差枚非掲載台日数", "総差枚",
             "1台1日平均差枚", "1台1日平均G数", "勝ち台日数",
             "勝率(%)", "計算出率(%)", "出典URL",
         ];
@@ -789,16 +849,18 @@ public sealed class CsvZipExporter
     private sealed record AggregateSummary(
         int UnitCount,
         int ActiveCount,
-        int TotalDifference,
-        double AverageDifference,
-        double MedianDifference,
-        double StandardDeviation,
+        int KnownDifferenceCount,
+        int MissingDifferenceCount,
+        int? TotalDifference,
+        double? AverageDifference,
+        double? MedianDifference,
+        double? StandardDeviation,
         int TotalGames,
         double AverageGames,
         int TotalSpins,
         int DetailSpins,
-        int Wins,
-        double WinRate,
+        int? Wins,
+        double? WinRate,
         double? CalculatedRate,
         double? AveragePayoutRate,
         double? Rate105OrMore,
