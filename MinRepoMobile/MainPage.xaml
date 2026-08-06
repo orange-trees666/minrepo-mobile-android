@@ -149,6 +149,24 @@
                             WidthRequest="80"
                             HorizontalTextAlignment="End" />
                     </Grid>
+
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <VerticalStackLayout Grid.Column="0" Spacing="2">
+                            <Label Text="1件あたりの取得間隔（秒）" />
+                            <Label
+                                Text="5～60秒で指定します。アクセス間隔は全ページ取得に適用されます。"
+                                FontSize="12"
+                                TextColor="{StaticResource TextSecondary}" />
+                        </VerticalStackLayout>
+                        <Entry
+                            x:Name="RequestDelaySecondsEntry"
+                            Grid.Column="1"
+                            Text="5"
+                            Keyboard="Numeric"
+                            MaxLength="2"
+                            WidthRequest="80"
+                            HorizontalTextAlignment="End" />
+                    </Grid>
                 </VerticalStackLayout>
             </Border>
 

@@ -8,6 +8,9 @@ namespace MinRepoMobile;
 
 public partial class MainPage : ContentPage
 {
+    private const int MinimumRequestDelaySeconds = 5;
+    private const int MaximumRequestDelaySeconds = 60;
+
     private readonly MinRepoExtractionService _extractor;
     private readonly StoreCatalogService _storeCatalog;
     private CancellationTokenSource? _cancellation;
@@ -336,6 +339,20 @@ public partial class MainPage : ContentPage
             return false;
         }
 
+        // サイトへ過度な連続アクセスを行わないよう、5秒未満は受け付けません。
+        // 画面で指定した値は一覧、全台、詳細の全HTTP取得へ共通で適用されます。
+        if (!int.TryParse(
+                RequestDelaySecondsEntry.Text,
+                out var requestDelaySeconds) ||
+            requestDelaySeconds is
+                < MinimumRequestDelaySeconds or > MaximumRequestDelaySeconds)
+        {
+            validationMessage =
+                $"1件あたりの取得間隔は" +
+                $"{MinimumRequestDelaySeconds}～{MaximumRequestDelaySeconds}秒で指定してください。";
+            return false;
+        }
+
         // DateSelectedで確定済みの値を使い、Androidの選択結果を確実に反映します。
         var fromDate = _selectedFromDate;
         var toDate = _selectedToDate;
@@ -375,7 +392,7 @@ public partial class MainPage : ContentPage
             ToDate: StoreModeRadio.IsChecked ? toDate : null,
             MaxListPages: 5,
             MaxReports: maxReports,
-            Delay: TimeSpan.FromSeconds(1.5),
+            Delay: TimeSpan.FromSeconds(requestDelaySeconds),
             Periods: periods,
             Keys: keys,
             FetchBonusDetails: BonusDetailsCheckBox.IsChecked,
@@ -413,6 +430,7 @@ public partial class MainPage : ContentPage
         StoreModeRadio.IsEnabled = !isRunning;
         ReportModeRadio.IsEnabled = !isRunning;
         MaxReportsEntry.IsEnabled = !isRunning;
+        RequestDelaySecondsEntry.IsEnabled = !isRunning;
         FromDatePicker.IsEnabled = !isRunning;
         ToDatePicker.IsEnabled = !isRunning;
         FromDateButton.IsEnabled = !isRunning;
