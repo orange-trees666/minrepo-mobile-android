@@ -120,16 +120,9 @@ public sealed class MinRepoExtractionService
                                 "レポートトップ・全台数確認"),
                             request.CreatePartialOutput);
                     }
-                    if (expectedTotalDifference is null)
-                    {
-                        RegisterFailureOrThrow(
-                            failures,
-                            new ExtractionFailure(
-                                reportTopUri.AbsoluteUri,
-                                "総差枚を取得できず、店舗全体差枚の照合を省略しました。",
-                                "レポートトップ・総差枚確認"),
-                            request.CreatePartialOutput);
-                    }
+                    // レポートトップに総差枚が掲載されない日もあります。
+                    // 台別差枚を全台取得できた場合は明細から正確に合計できるため、
+                    // トップに照合値がないこと自体は取得失敗にしません。
                 }
 
                 var html = await _client.GetTextAsync(
@@ -173,8 +166,12 @@ public sealed class MinRepoExtractionService
                     continue;
                 }
 
+                var needsDifferenceRecovery = report.Rows.Any(row =>
+                    row.Difference is null);
                 var reportRows =
-                    request.FetchBonusDetails || report.PendingRows.Count > 0
+                    request.FetchBonusDetails ||
+                    report.PendingRows.Count > 0 ||
+                    needsDifferenceRecovery
                     ? await EnrichWithMachineDetailsAsync(
                         report,
                         request,
@@ -197,8 +194,9 @@ public sealed class MinRepoExtractionService
                 }
                 var missingDifferenceCount =
                     reportRows.Count(row => row.Difference is null);
-                var missingPayoutRateCount =
-                    reportRows.Count(row => row.PayoutRate is null);
+                // 0G台は出率を計算できないため、出率「-」でも欠損には数えません。
+                var missingPayoutRateCount = reportRows.Count(row =>
+                    row.Games > 0 && row.PayoutRate is null);
                 if (missingDifferenceCount > 0 || missingPayoutRateCount > 0)
                 {
                     RegisterFailureOrThrow(
@@ -327,6 +325,8 @@ public sealed class MinRepoExtractionService
         var testDetailSource = new Uri("https://min-repo.com/1/?kishu=test");
         var testDetails = _parser.ParseMachineDetails(SelfTestDetailHtml, testDetailSource);
         var enrichedRows = ApplyMachineDetails(report, testDetails);
+        var publicPageCookies =
+            RespectfulMinRepoClient.ExtractPublicPageCookies(SelfTestCookieHtml);
 
         if (expectedUnitCount != 3 ||
             expectedTotalDifference != 900 ||
@@ -336,12 +336,15 @@ public sealed class MinRepoExtractionService
             partialReport.Rows.Count != 2 ||
             partialIssues.Count != 1 ||
             !strictModeRejectedPartialData ||
+            publicPageCookies.Count != 2 ||
+            publicPageCookies["_d2"] != "test-value==" ||
+            publicPageCookies["_d_a2"] != "+test-second-value=" ||
             enrichedRows.Count != expectedUnitCount ||
-            enrichedRows.Count(row => row.Difference is null) != 1 ||
-            testDetails[102].Difference is not null ||
+            enrichedRows.Any(row => row.Difference is null) ||
+            enrichedRows.Count(row => row.Difference is < 0) != 1 ||
+            testDetails[102].Difference != -300 ||
             enrichedRows.Count(row => row.Machine == "機種A") != 2 ||
-            enrichedRows.Where(row => row.Difference is not null)
-                .Sum(row => row.Difference!.Value) != 1200 ||
+            enrichedRows.Sum(row => row.Difference!.Value) != 900 ||
             enrichedRows.Sum(row => row.Bb ?? 0) != 15 ||
             enrichedRows.Sum(row => row.Rb ?? 0) != 18)
         {
@@ -442,7 +445,7 @@ public sealed class MinRepoExtractionService
             !rawCsv.Contains(",101,", StringComparison.Ordinal) ||
             !rawCsv.Contains(",102,", StringComparison.Ordinal) ||
             !rawCsv.Contains(",113,", StringComparison.Ordinal) ||
-            !rawCsv.Contains("一部非掲載,差枚・出率", StringComparison.Ordinal) ||
+            !rawCsv.Contains(",-300,1000,1000,90.00,", StringComparison.Ordinal) ||
             rawCsv.Contains(",999,", StringComparison.Ordinal))
         {
             throw new InvalidOperationException(
@@ -455,7 +458,8 @@ public sealed class MinRepoExtractionService
             .Length - 1;
         if (storeSummaryCount != 3 ||
             !flexibleCsv.Contains("差枚取得台日数", StringComparison.Ordinal) ||
-            !flexibleCsv.Contains("差枚非掲載台日数", StringComparison.Ordinal))
+            !flexibleCsv.Contains("差枚非掲載台日数", StringComparison.Ordinal) ||
+            !flexibleCsv.Contains(",900,", StringComparison.Ordinal))
         {
             throw new InvalidOperationException(
                 "内部テストの日・週・月または店舗全体の集計結果が一致しません。");
@@ -529,7 +533,7 @@ public sealed class MinRepoExtractionService
             }
 
             progress?.Report(new ExtractionProgress(
-                $"BB/RB詳細を取得中 {index + 1}/{detailUrls.Count}",
+                $"差枚・BB/RB詳細を取得中 {index + 1}/{detailUrls.Count}",
                 0.2));
 
             try
@@ -838,7 +842,7 @@ public sealed class MinRepoExtractionService
             <th>BB</th><th>RB</th><th>合成</th><th>BB率</th><th>RB率</th>
           </tr>
           <tr><td>101</td><td>1,200</td><td>3,000</td><td>113.3%</td><td>10</td><td>8</td><td>1/167</td><td>1/300</td><td>1/375</td></tr>
-          <tr><td>102</td><td>-</td><td>1,000</td><td>-</td><td>3</td><td>4</td><td>1/143</td><td>1/333</td><td>1/250</td></tr>
+          <tr><td>102</td><td>-300</td><td>1,000</td><td>90%</td><td>3</td><td>4</td><td>1/143</td><td>1/333</td><td>1/250</td></tr>
         </table>
         <div>長い詳細一覧の途中にある広告領域</div>
         <table>
@@ -859,5 +863,13 @@ public sealed class MinRepoExtractionService
           <tr><td>999</td><td>0</td><td>9999</td><td>133%</td><td>9</td><td>9</td><td>1/1</td><td>1/1</td><td>1/1</td></tr>
         </table>
         </body></html>
+        """;
+
+    private const string SelfTestCookieHtml = """
+        <script>
+          $.cookie('_d2', 'test-value==', { path: '/', expires: 60 });
+          $.cookie("_d_a2", "+test-second-value=", { path: "/", expires: 60 });
+          $.cookie('unrelated_cookie', 'must-not-be-imported', { path: '/' });
+        </script>
         """;
 }
