@@ -77,8 +77,7 @@ public sealed class AndroidBackgroundExtractionService(
 
 [Service(
     Name = "jp.minrepo.mobileextractor.ExtractionForegroundService",
-    Exported = false,
-    StopWithTask = false)]
+    Exported = false)]
 public sealed class ExtractionForegroundService : Service
 {
     public const string StartAction =
@@ -172,7 +171,7 @@ public sealed class ExtractionForegroundService : Service
         return StartCommandResult.NotSticky;
     }
 
-    public override Android.OS.IBinder? OnBind(Intent? intent) => null;
+    public override global::Android.OS.IBinder? OnBind(Intent? intent) => null;
 
     public override void OnDestroy()
     {
