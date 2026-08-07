@@ -614,7 +614,8 @@ public sealed class CsvZipExporter
     }
 
     private static string GetRowStatus(SlotRow row)
-        => row.Difference is not null && row.PayoutRate is not null
+        => row.Difference is not null &&
+           (row.PayoutRate is not null || row.Games == 0)
             ? "取得済み"
             : "一部非掲載";
 
@@ -625,7 +626,7 @@ public sealed class CsvZipExporter
         {
             fields.Add("差枚");
         }
-        if (row.PayoutRate is null)
+        if (row.PayoutRate is null && row.Games > 0)
         {
             fields.Add("出率");
         }
@@ -737,8 +738,9 @@ public sealed class CsvZipExporter
             ? null
             : knownDifferences.Sum(difference =>
                 Math.Pow(difference - averageDifference.Value, 2)) / unitCount;
+        var payoutEligibleCount = values.Count(row => row.Games > 0);
         var knownRates = values
-            .Where(row => row.PayoutRate is not null)
+            .Where(row => row.Games > 0 && row.PayoutRate is not null)
             .Select(row => row.PayoutRate!.Value)
             .ToList();
         var knownRateCount = knownRates.Count;
@@ -765,11 +767,16 @@ public sealed class CsvZipExporter
             CalculatedRate: totalGames == 0 || totalDifference is null
                 ? null
                 : 100d + (double)totalDifference.Value / (totalGames * 3d) * 100d,
-            AveragePayoutRate: knownRateCount != unitCount ? null : knownRates.Average(),
-            Rate105OrMore: knownRateCount != unitCount
+            AveragePayoutRate: knownRateCount == 0 ||
+                knownRateCount != payoutEligibleCount
+                ? null
+                : knownRates.Average(),
+            Rate105OrMore: knownRateCount == 0 ||
+                knownRateCount != payoutEligibleCount
                 ? null
                 : (double)knownRates.Count(rate => rate >= 105) / knownRateCount * 100,
-            Rate110OrMore: knownRateCount != unitCount
+            Rate110OrMore: knownRateCount == 0 ||
+                knownRateCount != payoutEligibleCount
                 ? null
                 : (double)knownRates.Count(rate => rate >= 110) / knownRateCount * 100,
             BbTotal: values.Sum(row => row.Bb ?? 0),

@@ -77,8 +77,7 @@ public sealed class AndroidBackgroundExtractionService(
 
 [Service(
     Name = "jp.minrepo.mobileextractor.ExtractionForegroundService",
-    Exported = false,
-    StopWithTask = false)]
+    Exported = false)]
 public sealed class ExtractionForegroundService : Service
 {
     public const string StartAction =
@@ -172,7 +171,7 @@ public sealed class ExtractionForegroundService : Service
         return StartCommandResult.NotSticky;
     }
 
-    public override Android.OS.IBinder? OnBind(Intent? intent) => null;
+    public override global::Android.OS.IBinder? OnBind(Intent? intent) => null;
 
     public override void OnDestroy()
     {
@@ -212,7 +211,7 @@ public sealed class ExtractionForegroundService : Service
                     : $" / 警告{result.FailureCount:N0}件");
             ShowResultNotification(title, message);
         }
-        catch (OperationCanceledException)
+        catch (global::System.OperationCanceledException)
         {
             if (_cancelledByUser)
             {
@@ -250,7 +249,7 @@ public sealed class ExtractionForegroundService : Service
         _coordinator?.Report(progress);
 
         // 通知の過度な再描画を避けつつ、最後の100%は必ず反映します。
-        var now = Environment.TickCount64;
+        var now = global::System.Environment.TickCount64;
         if (progress.Ratio < 1 && now - _lastNotificationTicks < 1000)
         {
             return;
