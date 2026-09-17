@@ -12,8 +12,49 @@ on:
       - ".github/workflows/android-debug-apk.yml"
   workflow_dispatch:
 
+permissions:
+  contents: read
+  actions: write
+
 jobs:
+  prune-old-artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      # 容量上限に達している場合でも、新しいビルドより先に古いDebug APKを整理します。
+      # PRでは削除処理を行わず、main実行時だけ既存の最新版1件を残します。
+      - name: Keep newest stored debug APK
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const artifactName = 'minrepo-mobile-debug-apk';
+            const artifacts = await github.paginate(
+              github.rest.actions.listArtifactsForRepo,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                per_page: 100
+              }
+            );
+
+            const managed = artifacts
+              .filter(a => a.name === artifactName && !a.expired)
+              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+            let deleted = 0;
+            for (const artifact of managed.slice(1)) {
+              await github.rest.actions.deleteArtifact({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                artifact_id: artifact.id
+              });
+              deleted++;
+            }
+
+            core.info(`Deleted ${deleted} older debug APK artifacts before build.`);
+
   build:
+    needs: prune-old-artifacts
     runs-on: windows-latest
 
     steps:
@@ -35,9 +76,48 @@ jobs:
       - name: Build debug APK
         run: dotnet build .\MinRepoMobile\MinRepoMobile.csproj -f net10.0-android -c Debug
 
+      # PRではビルド確認だけを行い、容量を消費するAPKは保存しません。
       - name: Upload APK
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: minrepo-mobile-debug-apk
           path: MinRepoMobile\bin\Debug\net10.0-android\**\*.apk
           if-no-files-found: error
+          retention-days: 7
+
+  cleanup-artifacts:
+    # ビルドやアップロードが失敗しても実行し、利用可能な最新版1件だけを残します。
+    if: always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete older debug APK artifacts
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const artifactName = 'minrepo-mobile-debug-apk';
+            const artifacts = await github.paginate(
+              github.rest.actions.listArtifactsForRepo,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                per_page: 100
+              }
+            );
+
+            const managed = artifacts
+              .filter(a => a.name === artifactName && !a.expired)
+              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+            let deleted = 0;
+            for (const artifact of managed.slice(1)) {
+              await github.rest.actions.deleteArtifact({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                artifact_id: artifact.id
+              });
+              deleted++;
+            }
+
+            core.info(`Deleted ${deleted} older debug APK artifacts after build.`);
