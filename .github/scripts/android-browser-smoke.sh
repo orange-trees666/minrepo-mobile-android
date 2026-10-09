@@ -5,24 +5,32 @@ sdk_tools="$ANDROID_HOME/cmdline-tools/latest/bin"
 adb_cmd="$ANDROID_HOME/platform-tools/adb"
 test_dir="$RUNNER_TEMP/minrepo-browser-test"
 mkdir -p "$test_dir"
+# 新しいavdmanagerとemulatorで既定の保存先が異なるため、両方を同じ作業領域へ固定します。
+export ANDROID_USER_HOME="$test_dir/android"
+export ANDROID_AVD_HOME="$ANDROID_USER_HOME/avd"
+mkdir -p "$ANDROID_AVD_HOME"
 # headlessでもemulator実行ファイルがリンクするLinuxライブラリーを用意します。
 sudo apt-get update -qq
 sudo apt-get install -y libpulse0 libglu1-mesa libxcb-cursor0
 "$sdk_tools/sdkmanager" "emulator" "system-images;android-35;google_apis;x86_64"
 printf 'no\n' | "$sdk_tools/avdmanager" create avd --force --name minrepo-browser \
-  --package "system-images;android-35;google_apis;x86_64" --device pixel_7
+  --package "system-images;android-35;google_apis;x86_64" --device pixel_7 \
+  --path "$ANDROID_AVD_HOME/minrepo-browser.avd"
+# avdmanagerの版によらず、emulatorが参照する登録ファイルも明示します。
+printf 'avd.ini.encoding=UTF-8\npath=%s\ntarget=android-35\n' \
+  "$ANDROID_AVD_HOME/minrepo-browser.avd" > "$ANDROID_AVD_HOME/minrepo-browser.ini"
 sudo chmod a+rw /dev/kvm
 "$ANDROID_HOME/emulator/emulator" -avd minrepo-browser -no-window -no-audio \
-  -no-boot-anim -no-snapshot -gpu swiftshader_indirect -memory 2048 \
+  -no-boot-anim -no-snapshot -gpu software -memory 2048 \
   > "$test_dir/emulator.log" 2>&1 &
 emulator_pid=$!
 trap 'kill "$emulator_pid" 2>/dev/null || true' EXIT
-if ! timeout 180 "$adb_cmd" wait-for-device; then
-  tail -n 100 "$test_dir/emulator.log"
-  exit 1
-fi
 booted=false
 for attempt in {1..90}; do
+  if ! kill -0 "$emulator_pid" 2>/dev/null; then
+    tail -n 100 "$test_dir/emulator.log"
+    exit 1
+  fi
   if [[ $("$adb_cmd" shell getprop sys.boot_completed | tr -d '\r') == 1 ]]; then
     booted=true
     break
