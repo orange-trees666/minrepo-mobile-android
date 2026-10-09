@@ -11,7 +11,7 @@ namespace MinRepoMobile.Services;
 public sealed class RespectfulMinRepoClient
 {
     private const string UserAgentProduct = "MinRepoMobileExtractor";
-    private const string UserAgentVersion = "1.0.12";
+    private const string UserAgentVersion = "1.0.18";
 
     // みんレポの公開ページは、ブラウザー上のJavaScriptでこの2つのCookieを設定後、
     // 同じ公開ページを再表示したときに完全な差枚・出率を返します。
@@ -22,6 +22,8 @@ public sealed class RespectfulMinRepoClient
     private static readonly Uri SiteRoot = new("https://min-repo.com/");
 
     private readonly HttpClient _httpClient;
+    private readonly Func<DateTimeOffset> _utcNow;
+    private readonly Func<TimeSpan, CancellationToken, Task> _waitAsync;
     private readonly CookieContainer _cookieContainer = new();
     private readonly Dictionary<string, string> _pageCookieValues =
         new(StringComparer.OrdinalIgnoreCase);
@@ -29,10 +31,18 @@ public sealed class RespectfulMinRepoClient
     private DateTimeOffset _lastRequestAt = DateTimeOffset.MinValue;
     private RobotsPolicy? _robotsPolicy;
 
-    public RespectfulMinRepoClient()
+    public RespectfulMinRepoClient() : this(null) { }
+
+    // テストでは時計と待機を差し替え、長いRetry-Afterも実時間を待たず検証できます。
+    internal RespectfulMinRepoClient(
+        HttpMessageHandler? handler,
+        Func<DateTimeOffset>? utcNow = null,
+        Func<TimeSpan, CancellationToken, Task>? waitAsync = null)
     {
-        var handler = new HttpClientHandler
+        handler ??= new HttpClientHandler
         {
+            // リダイレクト先も許可ホスト・robots・取得間隔を検証してから通信します。
+            AllowAutoRedirect = false,
             UseCookies = true,
             CookieContainer = _cookieContainer,
             AutomaticDecompression =
@@ -40,6 +50,9 @@ public sealed class RespectfulMinRepoClient
                 DecompressionMethods.Deflate |
                 DecompressionMethods.Brotli,
         };
+
+        _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
+        _waitAsync = waitAsync ?? ((delay, token) => Task.Delay(delay, token));
 
         _httpClient = new HttpClient(handler)
         {
@@ -62,27 +75,24 @@ public sealed class RespectfulMinRepoClient
             throw new ArgumentException("許可されていない取得先です。", nameof(uri));
         }
 
-        await EnsureRobotsPolicyAsync(cancellationToken);
-        if (_robotsPolicy is null || !_robotsPolicy.CanFetch(uri.AbsolutePath))
-        {
-            throw new InvalidOperationException(
-                $"robots.txtにより自動取得が許可されていません: {uri}");
-        }
-
         await _requestLock.WaitAsync(cancellationToken);
         try
         {
-            var elapsed = DateTimeOffset.UtcNow - _lastRequestAt;
-            if (_lastRequestAt != DateTimeOffset.MinValue && elapsed < delay)
+            // robots確認も同じロック・間隔に含め、複数呼出しによる初回の集中を防ぎます。
+            await EnsureRobotsPolicyAsync(delay, cancellationToken);
+            if (_robotsPolicy is null || !_robotsPolicy.CanFetch(uri.PathAndQuery))
             {
-                await Task.Delay(delay - elapsed, cancellationToken);
+                throw new InvalidOperationException(
+                    $"robots.txtにより自動取得が許可されていません: {uri}");
             }
 
             // 初回HTMLに公開Cookie設定が含まれていた場合だけ、ブラウザーと同じく
             // Cookieを反映して同じURLを1回再取得します。
             for (var pageAttempt = 0; pageAttempt < 2; pageAttempt++)
             {
-                var html = await SendWithRetryAsync(uri, cancellationToken);
+                using var response = await SendWithRetryAsync(uri, delay, cancellationToken);
+                response.EnsureSuccessStatusCode();
+                var html = await response.Content.ReadAsStringAsync(cancellationToken);
                 var cookieChanged = ApplyPublicPageCookies(html);
                 if (pageAttempt == 0 && cookieChanged)
                 {
@@ -103,21 +113,42 @@ public sealed class RespectfulMinRepoClient
         throw new HttpRequestException("ページを取得できませんでした。");
     }
 
-    private async Task<string> SendWithRetryAsync(
+    private async Task<HttpResponseMessage> SendWithRetryAsync(
         Uri uri,
+        TimeSpan delay,
         CancellationToken cancellationToken)
     {
+        var currentUri = uri;
+        var redirects = 0;
         for (var attempt = 0; attempt < 3; attempt++)
         {
-            using var response = await _httpClient.GetAsync(
-                uri,
+            await WaitForRequestIntervalAsync(delay, cancellationToken);
+            _lastRequestAt = _utcNow();
+            var response = await _httpClient.GetAsync(
+                currentUri,
                 HttpCompletionOption.ResponseHeadersRead,
                 cancellationToken);
-            _lastRequestAt = DateTimeOffset.UtcNow;
+
+            if ((int)response.StatusCode is 301 or 302 or 303 or 307 or 308)
+            {
+                var location = response.Headers.Location;
+                response.Dispose();
+                if (location is null || ++redirects > 5 ||
+                    !Uri.TryCreate(currentUri, location.ToString(), out var nextUri) ||
+                    !MinRepoUrl.IsAllowedHost(nextUri) ||
+                    (_robotsPolicy is not null && !_robotsPolicy.CanFetch(nextUri.PathAndQuery)))
+                {
+                    throw new HttpRequestException("許可されていない、または過剰なリダイレクトです。");
+                }
+
+                currentUri = nextUri;
+                attempt--; // リダイレクトは別の上限で管理し、障害再試行枠を消費しません。
+                continue;
+            }
 
             if (response.IsSuccessStatusCode)
             {
-                return await response.Content.ReadAsStringAsync(cancellationToken);
+                return response;
             }
 
             var retryable =
@@ -125,18 +156,16 @@ public sealed class RespectfulMinRepoClient
                 (int)response.StatusCode is 500 or 502 or 503 or 504;
             if (!retryable || attempt == 2)
             {
-                throw new HttpRequestException(
-                    $"ページ取得に失敗しました: HTTP {(int)response.StatusCode} {uri}",
-                    null,
-                    response.StatusCode);
+                return response; // 呼出し側がHTTP状態を検証し、必ずDisposeします。
             }
 
             var retryAfter = response.Headers.RetryAfter?.Delta
-                ?? TimeSpan.FromSeconds(Math.Pow(2, attempt + 1));
-            var boundedDelay = retryAfter > TimeSpan.FromSeconds(60)
-                ? TimeSpan.FromSeconds(60)
-                : retryAfter;
-            await Task.Delay(boundedDelay, cancellationToken);
+                ?? (response.Headers.RetryAfter?.Date is DateTimeOffset date
+                    ? date - _utcNow()
+                    : TimeSpan.FromSeconds(Math.Pow(2, attempt + 1)));
+            response.Dispose();
+            // サーバーの待機要求を60秒へ切り縮めず、入力間隔より短い再試行も防ぎます。
+            await _waitAsync(retryAfter > delay ? retryAfter : delay, cancellationToken);
         }
 
         throw new HttpRequestException("ページを取得できませんでした。");
@@ -146,10 +175,10 @@ public sealed class RespectfulMinRepoClient
         TimeSpan delay,
         CancellationToken cancellationToken)
     {
-        var elapsed = DateTimeOffset.UtcNow - _lastRequestAt;
+        var elapsed = _utcNow() - _lastRequestAt;
         if (_lastRequestAt != DateTimeOffset.MinValue && elapsed < delay)
         {
-            await Task.Delay(delay - elapsed, cancellationToken);
+            await _waitAsync(delay - elapsed, cancellationToken);
         }
     }
 
@@ -197,7 +226,7 @@ public sealed class RespectfulMinRepoClient
         return results;
     }
 
-    private async Task EnsureRobotsPolicyAsync(CancellationToken cancellationToken)
+    private async Task EnsureRobotsPolicyAsync(TimeSpan delay, CancellationToken cancellationToken)
     {
         if (_robotsPolicy is not null)
         {
@@ -207,7 +236,7 @@ public sealed class RespectfulMinRepoClient
         var robotsUri = new Uri("https://min-repo.com/robots.txt");
         try
         {
-            using var response = await _httpClient.GetAsync(robotsUri, cancellationToken);
+            using var response = await SendWithRetryAsync(robotsUri, delay, cancellationToken);
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
                 _robotsPolicy = RobotsPolicy.AllowAll;
@@ -323,16 +352,24 @@ public sealed class RespectfulMinRepoClient
         public bool CanFetch(string absolutePath)
         {
             var matching = _rules
-                .Where(rule => absolutePath.StartsWith(
-                    rule.Path.TrimEnd('$'),
-                    StringComparison.Ordinal))
-                .OrderByDescending(rule => rule.Path.Length)
+                .Where(rule => rule.Matches(absolutePath))
+                .OrderByDescending(rule => rule.Path.Count(c => c is not '*' and not '$'))
                 .ThenByDescending(rule => rule.IsAllowed)
                 .FirstOrDefault();
 
             return matching is null || matching.IsAllowed;
         }
 
-        private sealed record Rule(string Path, bool IsAllowed);
+        private sealed record Rule(string Path, bool IsAllowed)
+        {
+            // '*'は任意長、末尾'$'はURL終端。クエリ文字列も照合対象に含めます。
+            public bool Matches(string pathAndQuery)
+            {
+                var pattern = Regex.Escape(Path.TrimEnd('$')).Replace("\\*", ".*");
+                return Regex.IsMatch(pathAndQuery,
+                    "^" + pattern + (Path.EndsWith('$') ? "$" : string.Empty),
+                    RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+            }
+        }
     }
 }

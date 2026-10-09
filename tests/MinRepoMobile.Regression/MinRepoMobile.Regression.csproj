@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <!-- アプリの実コードをリンクし、Android端末や外部通信なしで回帰検証します。 -->
+  <ItemGroup>
+    <Compile Include="../../MinRepoMobile/Models/ExtractionModels.cs" Link="Models/ExtractionModels.cs" />
+    <Compile Include="../../MinRepoMobile/Models/BackgroundExtractionModels.cs" Link="Models/BackgroundExtractionModels.cs" />
+    <Compile Include="../../MinRepoMobile/Services/MinRepo*.cs" Link="Services/%(Filename)%(Extension)" />
+    <Compile Include="../../MinRepoMobile/Services/RespectfulMinRepoClient.cs" Link="Services/RespectfulMinRepoClient.cs" />
+    <Compile Include="../../MinRepoMobile/Services/CsvZipExporter.cs" Link="Services/CsvZipExporter.cs" />
+    <Compile Include="../../MinRepoMobile/Services/BackgroundExtractionCoordinator.cs" Link="Services/BackgroundExtractionCoordinator.cs" />
+  </ItemGroup>
+</Project>

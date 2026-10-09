@@ -8,8 +8,8 @@ namespace MinRepoMobile.Platforms.Android;
 public sealed class NotificationPermission : Permissions.BasePlatformPermission
 {
     public override (string androidPermission, bool isRuntime)[] RequiredPermissions =>
-    [
-        (global::Android.Manifest.Permission.PostNotifications, true),
-    ];
+        OperatingSystem.IsAndroidVersionAtLeast(33)
+            ? [(global::Android.Manifest.Permission.PostNotifications, true)]
+            : [];
 }
 
