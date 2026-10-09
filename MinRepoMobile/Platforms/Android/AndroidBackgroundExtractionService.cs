@@ -97,7 +97,7 @@ public sealed class ExtractionForegroundService : Service
     private PowerManager.WakeLock? _wakeLock;
     private BackgroundExtractionCoordinator? _coordinator;
     private bool _cancelledByUser;
-    private bool _isRunning;
+    private volatile bool _isRunning;
     private long _lastNotificationTicks;
 
     public override void OnCreate()
@@ -143,7 +143,7 @@ public sealed class ExtractionForegroundService : Service
             ProgressNotificationId,
             BuildProgressNotification("取得条件を準備しています。", 0));
 
-        if (_isRunning)
+        if (_cancellation is not null || _isRunning)
         {
             return StartCommandResult.NotSticky;
         }
@@ -161,6 +161,7 @@ public sealed class ExtractionForegroundService : Service
 
             _isRunning = true;
             _wakeLock?.Acquire((long)MaximumRunTime.TotalMilliseconds);
+            _cancelledByUser = false;
             _ = RunExtractionAsync(request);
         }
         catch (Exception ex)
@@ -176,14 +177,32 @@ public sealed class ExtractionForegroundService : Service
     public override void OnDestroy()
     {
         _cancellation?.Cancel();
-        _cancellation?.Dispose();
+        if (_isRunning)
+        {
+            _isRunning = false;
+            const string message = "Androidにより取得サービスが停止されました。再度取得を実行してください。";
+            _coordinator?.Fail(message);
+            ShowResultNotification("みんレポ取得に失敗しました", message);
+        }
+        // CTSの破棄は非同期処理のfinallyで行い、終了前のObjectDisposedExceptionを防ぎます。
         ReleaseWakeLock();
         base.OnDestroy();
     }
 
+    /// <summary>
+    /// Android 15以降の累積実行上限に達したら、OSの猶予時間内にサービスを停止します。
+    /// 1回5時間30分の自主制限だけでは、OS側の累積上限には対応できません。
+    /// </summary>
+    public override void OnTimeout(int startId, global::Android.Content.PM.ForegroundService fgsType)
+    {
+        _cancellation?.Cancel();
+        FinishWithFailure("Androidのバックグラウンド実行時間上限に達したため停止しました。");
+    }
+
     private async Task RunExtractionAsync(ExtractionRequest request)
     {
-        _cancellation = new CancellationTokenSource(MaximumRunTime);
+        using var cancellation = new CancellationTokenSource(MaximumRunTime);
+        _cancellation = cancellation;
 
         try
         {
@@ -194,14 +213,18 @@ public sealed class ExtractionForegroundService : Service
             _coordinator ??=
                 services.GetRequiredService<BackgroundExtractionCoordinator>();
 
-            var progress = new Progress<ExtractionProgress>(OnProgress);
-            var result = await extractor.ExtractAsync(
-                request,
-                progress,
-                _cancellation.Token);
+            // HTML解析・CSV圧縮もUIスレッドから離し、取得中の画面操作を妨げません。
+            // Progress<T>の非同期キューを使わず、その場で通知して終了後の再通知を防ぎます。
+            var progress = new ImmediateProgress(OnProgress);
+            var result = await Task.Run(() => extractor.ExtractAsync(
+                request, progress, cancellation.Token), cancellation.Token);
+
+            if (!_isRunning) return;
 
             _coordinator.Complete(result);
-            var title = result.FailureCount == 0
+            var title = result.RowCount == 0
+                ? "みんレポ取得に失敗しました（データ0件）"
+                : result.FailureCount == 0
                 ? "みんレポ取得が完了しました"
                 : "みんレポ取得が完了しました（警告あり）";
             var message =
@@ -213,6 +236,7 @@ public sealed class ExtractionForegroundService : Service
         }
         catch (global::System.OperationCanceledException)
         {
+            if (!_isRunning) return;
             if (_cancelledByUser)
             {
                 _coordinator?.Cancel();
@@ -230,13 +254,12 @@ public sealed class ExtractionForegroundService : Service
         }
         catch (Exception ex)
         {
-            FinishWithFailure(ex.Message);
+            if (_isRunning) FinishWithFailure(ex.Message);
             return;
         }
         finally
         {
             _isRunning = false;
-            _cancellation?.Dispose();
             _cancellation = null;
             ReleaseWakeLock();
             StopForeground(StopForegroundFlags.Remove);
@@ -246,6 +269,7 @@ public sealed class ExtractionForegroundService : Service
 
     private void OnProgress(ExtractionProgress progress)
     {
+        if (!_isRunning || _cancellation?.IsCancellationRequested == true) return;
         _coordinator?.Report(progress);
 
         // 通知の過度な再描画を避けつつ、最後の100%は必ず反映します。
@@ -269,6 +293,11 @@ public sealed class ExtractionForegroundService : Service
         ReleaseWakeLock();
         StopForeground(StopForegroundFlags.Remove);
         StopSelf();
+    }
+
+    private sealed class ImmediateProgress(Action<ExtractionProgress> report) : IProgress<ExtractionProgress>
+    {
+        public void Report(ExtractionProgress value) => report(value);
     }
 
     private Notification BuildProgressNotification(string message, double ratio)

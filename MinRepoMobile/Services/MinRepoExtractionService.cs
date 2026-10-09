@@ -9,9 +9,14 @@ namespace MinRepoMobile.Services;
 /// </summary>
 public sealed class MinRepoExtractionService
 {
-    private readonly RespectfulMinRepoClient _client = new();
+    private readonly RespectfulMinRepoClient _client;
     private readonly MinRepoHtmlParser _parser = new();
     private readonly CsvZipExporter _exporter = new();
+
+    public MinRepoExtractionService() : this(new RespectfulMinRepoClient()) { }
+
+    // 通信を差し替え、実サイトへアクセスせず取得からZIP作成まで回帰検証できます。
+    internal MinRepoExtractionService(RespectfulMinRepoClient client) => _client = client;
 
     public async Task<ExtractionResult> ExtractAsync(
         ExtractionRequest request,
@@ -166,12 +171,13 @@ public sealed class MinRepoExtractionService
                     continue;
                 }
 
-                var needsDifferenceRecovery = report.Rows.Any(row =>
-                    row.Difference is null);
+                // 差枚だけでなく、稼働台の出率のみ欠けている場合も詳細で補完します。
+                var needsDetailRecovery = report.Rows.Any(row =>
+                    row.Difference is null || (row.Games > 0 && row.PayoutRate is null));
                 var reportRows =
                     request.FetchBonusDetails ||
                     report.PendingRows.Count > 0 ||
-                    needsDifferenceRecovery
+                    needsDetailRecovery
                     ? await EnrichWithMachineDetailsAsync(
                         report,
                         request,

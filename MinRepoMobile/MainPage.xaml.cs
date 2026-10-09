@@ -386,12 +386,8 @@ public partial class MainPage : ContentPage
             sourceUrl = selectedStore.Url;
         }
 
-        if (!int.TryParse(MaxReportsEntry.Text, out var maxReports))
-        {
-            maxReports = 31;
-        }
-
-        if (maxReports is < 1 or > 100)
+        if (!int.TryParse(MaxReportsEntry.Text, out var maxReports) ||
+            maxReports is < 1 or > 100)
         {
             validationMessage = "最大レポート数は1～100で指定してください。";
             return false;
@@ -469,7 +465,14 @@ public partial class MainPage : ContentPage
         object? sender,
         BackgroundExtractionState state)
     {
-        MainThread.BeginInvokeOnMainThread(() => ApplyBackgroundState(state));
+        // UIキューに残った古い進捗で、完了表示を「取得中」へ巻き戻さないようにします。
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            if (ReferenceEquals(state, _backgroundCoordinator.Current))
+            {
+                ApplyBackgroundState(state);
+            }
+        });
     }
 
     private void ApplyBackgroundState(
@@ -509,6 +512,12 @@ public partial class MainPage : ContentPage
                 break;
 
             case BackgroundExtractionStatus.Failed:
+                _latestZipPath = state.ZipPath;
+                ShareButton.IsEnabled =
+                    !string.IsNullOrWhiteSpace(state.ZipPath) && File.Exists(state.ZipPath);
+                SetRunningState(false);
+                break;
+
             case BackgroundExtractionStatus.Cancelled:
             case BackgroundExtractionStatus.Idle:
                 SetRunningState(false);
