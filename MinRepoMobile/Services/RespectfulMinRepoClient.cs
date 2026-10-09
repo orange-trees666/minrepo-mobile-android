@@ -11,7 +11,7 @@ namespace MinRepoMobile.Services;
 public sealed class RespectfulMinRepoClient
 {
     private const string UserAgentProduct = "MinRepoMobileExtractor";
-    private const string UserAgentVersion = "1.0.13";
+    private const string UserAgentVersion = "1.0.18";
 
     // みんレポの公開ページは、ブラウザー上のJavaScriptでこの2つのCookieを設定後、
     // 同じ公開ページを再表示したときに完全な差枚・出率を返します。
