@@ -22,6 +22,7 @@ internal static class BrowserSmokeTests
         var success = false;
         string? error = null;
         page.ShowBrowserForSmokeTest(true);
+        browserPages.DiagnosticsEnabled = true;
         try
         {
             // 最初は表を持たないJSだけを返します。実WebViewがCookieを設定し、再読込した後に表を返します。
@@ -50,6 +51,11 @@ internal static class BrowserSmokeTests
 
             // 公開レポート1日分だけを実取得します。成功判定には行数だけでなく完全取得モードの照合を使います。
             browserPages.SetTestResponses(null);
+            // 模擬サイトのCookieを残した状態では、新規インストール時の取得を再現できません。
+            var removed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            await MainThread.InvokeOnMainThreadAsync(() =>
+                CookieManager.Instance!.RemoveAllCookies(new CookieRemoved(removed)));
+            await removed.Task.WaitAsync(TimeSpan.FromSeconds(10));
             var live = await Task.Run(() => extractor.ExtractAsync(Request("https://min-repo.com/3398462/", false), null, default));
             if (live.RowCount != 371 || live.ReportCount != 1 || live.FailureCount != 0)
                 throw new InvalidOperationException($"実サイトの全台照合に失敗しました: {live.RowCount}台 / {live.FailureCount}件");
@@ -60,6 +66,7 @@ internal static class BrowserSmokeTests
         finally
         {
             browserPages.SetTestResponses(null);
+            browserPages.DiagnosticsEnabled = false;
             page.ShowBrowserForSmokeTest(false);
             var json = JsonSerializer.Serialize(new { success, results, error });
             await File.WriteAllTextAsync(Path.Combine(FileSystem.AppDataDirectory, "browser-smoke.json"), json);
@@ -70,6 +77,15 @@ internal static class BrowserSmokeTests
     private static ExtractionRequest Request(string url, bool bonus)
         => new(url, false, null, null, 1, 1, TimeSpan.FromSeconds(5),
             AggregationPeriods.Day, AggregationKeys.Machine, bonus, false);
+
+    private sealed class CookieRemoved(TaskCompletionSource completion) : Java.Lang.Object, IValueCallback
+    {
+        public void OnReceiveValue(Java.Lang.Object? value)
+        {
+            completion.TrySetResult();
+            Dispose();
+        }
+    }
 
     private static string Fixture(string query)
     {

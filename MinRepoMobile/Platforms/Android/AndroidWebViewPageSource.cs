@@ -80,6 +80,17 @@ public sealed class AndroidWebViewPageSource : IMinRepoPageSource
                     MinRepoBrowserReadiness.IsRequestedDocument(uri, actual))
                 {
                     var fingerprint = MinRepoBrowserReadiness.GetFingerprint(snapshot.Html, uri);
+#if DEBUG
+                    if (DiagnosticsEnabled && fingerprint is null && operation.DiagnosticNavigation != operation.Navigations)
+                    {
+                        operation.DiagnosticNavigation = operation.Navigations;
+                        var cookieNames = await MainThread.InvokeOnMainThreadAsync(() =>
+                            string.Join(",", (CookieManager.Instance!.GetCookie(uri.AbsoluteUri) ?? "")
+                                .Split(';', StringSplitOptions.RemoveEmptyEntries).Select(c => c.Split('=')[0].Trim())));
+                        global::Android.Util.Log.Info("MinRepoBrowserTest",
+                            $"Incomplete DOM: url={snapshot.Url} length={snapshot.Html.Length} reloads={operation.Navigations} cookies={cookieNames}");
+                    }
+#endif
                     // 読込完了だけでは確認用HTMLも成功するため、実表が2回連続で安定した後に採用します。
                     if (fingerprint is not null && fingerprint == previous)
                     {
@@ -145,7 +156,10 @@ public sealed class AndroidWebViewPageSource : IMinRepoPageSource
             {
                 if (!ReferenceEquals(_active, operation) || operation.Token.IsCancellationRequested) return;
                 operation.Loaded = false;
-                _browser?.LoadUrl(uri.AbsoluteUri);
+                // LoadUrlへ置き換えると、JS遷移の参照元・ブラウザーの文脈が失われます。
+                // 間隔確認後は同じ文書から遷移し、次の1回だけWebView自身に処理させます。
+                operation.AuthorizedNavigation = uri;
+                _browser?.EvaluateJavascript("window.location.href=" + JsonSerializer.Serialize(uri.AbsoluteUri), null);
             });
         }
         catch (OperationCanceledException) { }
@@ -162,6 +176,10 @@ public sealed class AndroidWebViewPageSource : IMinRepoPageSource
         public CancellationToken Token { get; } = token;
         public bool Loaded { get; set; }
         public int Navigations { get; set; }
+        public Uri? AuthorizedNavigation { get; set; }
+#if DEBUG
+        public int DiagnosticNavigation { get; set; } = -1;
+#endif
         public Exception? Error { get; set; }
     }
 
@@ -184,7 +202,12 @@ public sealed class AndroidWebViewPageSource : IMinRepoPageSource
             if (operation is null || request?.Url is null) return true;
             if (!Uri.TryCreate(request.Url.ToString(), UriKind.Absolute, out var uri) ||
                 !MinRepoBrowserReadiness.IsRequestedDocument(operation.Uri, uri)) return true;
-            // native.LoadUrlによる遷移はこのイベントを経由しないため、再帰しません。
+            if (operation.AuthorizedNavigation is { } authorized &&
+                MinRepoBrowserReadiness.IsRequestedDocument(authorized, uri))
+            {
+                operation.AuthorizedNavigation = null;
+                return false;
+            }
             _ = owner.NavigateAsync(operation, uri);
             return true;
         }
@@ -235,6 +258,7 @@ public sealed class AndroidWebViewPageSource : IMinRepoPageSource
     }
 
 #if DEBUG
+    internal bool DiagnosticsEnabled { get; set; }
     private Func<Uri, string>? _testResponses;
     internal void SetTestResponses(Func<Uri, string>? responses)
     {
