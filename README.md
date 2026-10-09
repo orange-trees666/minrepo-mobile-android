@@ -80,6 +80,7 @@ Android 15以降でOS側の累積上限に先に達した場合も、タイム�
 - 最大レポート数の未入力・文字入力は実行前にエラー表示
 - 通知権限をAndroid 13以降に限定し、CA1416警告を解消
 - Debug APKにも実行コードを埋め込み、単体インストールに対応
+- GitHub ActionsをNode.js 24対応の公式バージョンへ更新
 
 GitHub ActionsではAndroidビルドの前に、`tests/MinRepoMobile.Regression`の
 通信なし回帰テストを実行します。PCでは.NET 10 SDKを使い、次のコマンドで再実行できます。
