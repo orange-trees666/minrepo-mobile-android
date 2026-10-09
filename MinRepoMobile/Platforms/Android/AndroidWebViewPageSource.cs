@@ -81,9 +81,10 @@ public sealed class AndroidWebViewPageSource : IMinRepoPageSource
                 {
                     var fingerprint = MinRepoBrowserReadiness.GetFingerprint(snapshot.Html, uri);
 #if DEBUG
-                    if (DiagnosticsEnabled && fingerprint is null && operation.DiagnosticNavigation != operation.Navigations)
+                    var diagnosticShape = $"{operation.Navigations}:{snapshot.Html.Length / 1000}";
+                    if (DiagnosticsEnabled && fingerprint is null && operation.DiagnosticShape != diagnosticShape)
                     {
-                        operation.DiagnosticNavigation = operation.Navigations;
+                        operation.DiagnosticShape = diagnosticShape;
                         var cookieNames = await MainThread.InvokeOnMainThreadAsync(() =>
                             string.Join(",", (CookieManager.Instance!.GetCookie(uri.AbsoluteUri) ?? "")
                                 .Split(';', StringSplitOptions.RemoveEmptyEntries).Select(c => c.Split('=')[0].Trim())));
@@ -178,7 +179,7 @@ public sealed class AndroidWebViewPageSource : IMinRepoPageSource
         public int Navigations { get; set; }
         public Uri? AuthorizedNavigation { get; set; }
 #if DEBUG
-        public int DiagnosticNavigation { get; set; } = -1;
+        public string? DiagnosticShape { get; set; }
 #endif
         public Exception? Error { get; set; }
     }
@@ -219,6 +220,13 @@ public sealed class AndroidWebViewPageSource : IMinRepoPageSource
 
         public override void OnPageFinished(NativeWebView? view, string? url)
         {
+            if (owner._active is { } operation && Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
+                MinRepoBrowserReadiness.IsRequestedDocument(operation.Uri, uri)) operation.Loaded = true;
+        }
+
+        public override void OnPageCommitVisible(NativeWebView? view, string? url)
+        {
+            // 本文表示後はDOMの実データを検査し、広告等のサブリソース完了を待ちません。
             if (owner._active is { } operation && Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
                 MinRepoBrowserReadiness.IsRequestedDocument(operation.Uri, uri)) operation.Loaded = true;
         }

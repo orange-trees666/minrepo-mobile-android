@@ -70,13 +70,13 @@ PY
     else
       result_code=$?
       if [[ "$result_code" == 1 ]]; then
-        "$adb_cmd" logcat -d -s MinRepoBrowserTest AndroidRuntime
+        "$adb_cmd" logcat -d -s MinRepoBrowserTest AndroidRuntime chromium
         exit 1
       fi
     fi
   fi
   sleep 5
 done
-"$adb_cmd" logcat -d -s MinRepoBrowserTest AndroidRuntime
+"$adb_cmd" logcat -d -s MinRepoBrowserTest AndroidRuntime chromium
 echo "Android browser smoke test did not finish within six minutes."
 exit 1
