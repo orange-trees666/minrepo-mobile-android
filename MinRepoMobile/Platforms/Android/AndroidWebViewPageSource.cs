@@ -98,6 +98,13 @@ public sealed class AndroidWebViewPageSource : IMinRepoPageSource
                 "サイトの確認画面が続くか、必要なデータ表が表示されず、2分で停止しました。" +
                 "確認画面を操作しても進まない場合は、通信回線を確認して再実行してください。");
         }
+        catch (Exception ex) when (ex is not OperationCanceledException and not PageAcquisitionException &&
+            !(ex is HttpRequestException http && http.StatusCode == HttpStatusCode.NotFound))
+        {
+            // 通信・robots確認・JS評価の障害を、別日の欠損として大量に繰り返しません。
+            // 実在しないレポートの404だけは通常のページ欠損として呼出し側へ返します。
+            throw new PageAcquisitionException($"ブラウザーでページを取得できませんでした: {ex.Message}", ex);
+        }
         finally
         {
             await MainThread.InvokeOnMainThreadAsync(() =>

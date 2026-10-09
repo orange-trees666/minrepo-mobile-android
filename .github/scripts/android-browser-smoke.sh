@@ -5,6 +5,9 @@ sdk_tools="$ANDROID_HOME/cmdline-tools/latest/bin"
 adb_cmd="$ANDROID_HOME/platform-tools/adb"
 test_dir="$RUNNER_TEMP/minrepo-browser-test"
 mkdir -p "$test_dir"
+# headlessでもemulator実行ファイルがリンクするLinuxライブラリーを用意します。
+sudo apt-get update -qq
+sudo apt-get install -y libpulse0 libglu1-mesa libxcb-cursor0
 "$sdk_tools/sdkmanager" "emulator" "system-images;android-35;google_apis;x86_64"
 printf 'no\n' | "$sdk_tools/avdmanager" create avd --force --name minrepo-browser \
   --package "system-images;android-35;google_apis;x86_64" --device pixel_7
@@ -14,7 +17,10 @@ sudo chmod a+rw /dev/kvm
   > "$test_dir/emulator.log" 2>&1 &
 emulator_pid=$!
 trap 'kill "$emulator_pid" 2>/dev/null || true' EXIT
-timeout 180 "$adb_cmd" wait-for-device
+if ! timeout 180 "$adb_cmd" wait-for-device; then
+  tail -n 100 "$test_dir/emulator.log"
+  exit 1
+fi
 booted=false
 for attempt in {1..90}; do
   if [[ $("$adb_cmd" shell getprop sys.boot_completed | tr -d '\r') == 1 ]]; then

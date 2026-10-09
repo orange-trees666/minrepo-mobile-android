@@ -6,11 +6,13 @@ on:
     paths:
       - "MinRepoMobile/**"
       - ".github/workflows/android-debug-apk.yml"
+      - ".github/scripts/**"
       - "tests/**"
   pull_request:
     paths:
       - "MinRepoMobile/**"
       - ".github/workflows/android-debug-apk.yml"
+      - ".github/scripts/**"
       - "tests/**"
   workflow_dispatch:
 
