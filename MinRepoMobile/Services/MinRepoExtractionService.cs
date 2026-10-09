@@ -9,14 +9,14 @@ namespace MinRepoMobile.Services;
 /// </summary>
 public sealed class MinRepoExtractionService
 {
-    private readonly RespectfulMinRepoClient _client;
+    private readonly IMinRepoPageSource _client;
     private readonly MinRepoHtmlParser _parser = new();
     private readonly CsvZipExporter _exporter = new();
 
     public MinRepoExtractionService() : this(new RespectfulMinRepoClient()) { }
 
     // 通信を差し替え、実サイトへアクセスせず取得からZIP作成まで回帰検証できます。
-    internal MinRepoExtractionService(RespectfulMinRepoClient client) => _client = client;
+    public MinRepoExtractionService(IMinRepoPageSource client) => _client = client;
 
     public async Task<ExtractionResult> ExtractAsync(
         ExtractionRequest request,
@@ -82,6 +82,7 @@ public sealed class MinRepoExtractionService
                 {
                     throw;
                 }
+                catch (PageAcquisitionException) { throw; }
                 catch (Exception ex)
                 {
                     var failure = new ExtractionFailure(
@@ -240,6 +241,12 @@ public sealed class MinRepoExtractionService
             catch (OperationCanceledException)
             {
                 throw;
+            }
+            catch (PageAcquisitionException ex)
+            {
+                failures.Add(new ExtractionFailure(allMachinesUri.AbsoluteUri,
+                    ex.Message, "ブラウザー取得・停止"));
+                break; // 確認画面のループ時に残りの日付へ連続アクセスしません。
             }
             catch (Exception ex)
             {
@@ -625,6 +632,7 @@ public sealed class MinRepoExtractionService
             {
                 throw;
             }
+            catch (PageAcquisitionException) { throw; }
             catch (Exception ex)
             {
                 failures.Add(new ExtractionFailure(
@@ -735,6 +743,7 @@ public sealed class MinRepoExtractionService
             {
                 throw;
             }
+            catch (PageAcquisitionException) { throw; }
             catch (Exception ex)
             {
                 var failure = new ExtractionFailure(

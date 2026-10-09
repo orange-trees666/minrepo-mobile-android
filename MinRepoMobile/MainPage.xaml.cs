@@ -4,6 +4,7 @@ using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.ApplicationModel.DataTransfer;
 using Microsoft.Maui.Devices;
 using Microsoft.Maui.Networking;
+using MinRepoMobile.Platforms.Android;
 
 namespace MinRepoMobile;
 
@@ -27,7 +28,8 @@ public partial class MainPage : ContentPage
         MinRepoExtractionService extractor,
         StoreCatalogService storeCatalog,
         IBackgroundExtractionService backgroundExtraction,
-        BackgroundExtractionCoordinator backgroundCoordinator)
+        BackgroundExtractionCoordinator backgroundCoordinator,
+        AndroidWebViewPageSource browserPages)
     {
         InitializeComponent();
         _extractor = extractor;
@@ -35,6 +37,9 @@ public partial class MainPage : ContentPage
         _backgroundExtraction = backgroundExtraction;
         _backgroundCoordinator = backgroundCoordinator;
         _backgroundCoordinator.StateChanged += OnBackgroundStateChanged;
+        browserPages.Attach(AcquisitionWebView);
+        browserPages.StatusChanged += message => MainThread.BeginInvokeOnMainThread(() =>
+            BrowserHintLabel.Text = message);
 
         // 初期期間は直近30日とし、スマホで過度な件数を取得しない設定にします。
         _selectedToDate = DateOnly.FromDateTime(DateTime.Today);
@@ -83,6 +88,13 @@ public partial class MainPage : ContentPage
             StoreCatalogStatusLabel.Text =
                 $"設定ファイルから{_allStores.Count:N0}店舗を読み込みました。";
             SetRunningState(_backgroundExtraction.IsRunning);
+#if DEBUG
+            // CIは画面生成後に実WebViewを操作します。通常起動では実行しません。
+            if (Platform.CurrentActivity?.Intent?.GetBooleanExtra("minrepo_smoke_test", false) == true)
+                await BrowserSmokeTests.RunAsync(this, _extractor, browserPages: AppServiceProvider.Current!
+                    .GetService(typeof(AndroidWebViewPageSource)) as AndroidWebViewPageSource ??
+                    throw new InvalidOperationException("ブラウザー取得を初期化できません。"));
+#endif
         }
         catch (Exception ex)
         {
@@ -235,22 +247,6 @@ public partial class MainPage : ContentPage
             return;
         }
 
-        if (request!.IsStoreMode &&
-            (request.MaxReports > 7 ||
-             request.ToDate!.Value.DayNumber - request.FromDate!.Value.DayNumber > 7))
-        {
-            var continueExecution = await DisplayAlertAsync(
-                "長期間の取得には時間がかかります",
-                "BB・RB取得を選んだ場合は、機種別ページも順番に取得します。" +
-                "1週間を超える場合は数十分かかる可能性があります。続行しますか？",
-                "実行",
-                "戻る");
-            if (!continueExecution)
-            {
-                return;
-            }
-        }
-
         _latestZipPath = null;
         ShareButton.IsEnabled = false;
         LogEditor.Text = string.Empty;
@@ -258,6 +254,7 @@ public partial class MainPage : ContentPage
 
         try
         {
+            BrowserPanel.IsVisible = true;
             await _backgroundExtraction.StartAsync(request!);
         }
         catch (Exception ex)
@@ -481,6 +478,8 @@ public partial class MainPage : ContentPage
     {
         StatusLabel.Text = state.Message;
         ProgressBar.Progress = Math.Clamp(state.Progress, 0, 1);
+        BrowserStatusLabel.Text = state.Message;
+        BrowserProgressBar.Progress = Math.Clamp(state.Progress, 0, 1);
 
         if (appendToLog)
         {
@@ -536,6 +535,9 @@ public partial class MainPage : ContentPage
 
     private void SetRunningState(bool isRunning)
     {
+        BrowserPanel.IsVisible = isRunning && _backgroundExtraction.IsRunning;
+        // ブラウザーのJS実行が停止しないよう、通常取得も画面点灯を維持します。
+        DeviceDisplay.Current.KeepScreenOn = isRunning;
         StartButton.IsEnabled = !isRunning;
         CancelButton.IsEnabled = isRunning;
         UrlEntry.IsEnabled = !isRunning;
@@ -565,5 +567,9 @@ public partial class MainPage : ContentPage
         StrictOutputRadio.IsEnabled = !isRunning;
         SelfTestButton.IsEnabled = !isRunning;
     }
+
+#if DEBUG
+    internal void ShowBrowserForSmokeTest(bool visible) => BrowserPanel.IsVisible = visible;
+#endif
 
 }
