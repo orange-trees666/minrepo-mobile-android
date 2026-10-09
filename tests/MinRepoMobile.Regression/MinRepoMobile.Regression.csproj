@@ -10,6 +10,7 @@
     <Compile Include="../../MinRepoMobile/Models/ExtractionModels.cs" Link="Models/ExtractionModels.cs" />
     <Compile Include="../../MinRepoMobile/Models/BackgroundExtractionModels.cs" Link="Models/BackgroundExtractionModels.cs" />
     <Compile Include="../../MinRepoMobile/Services/MinRepo*.cs" Link="Services/%(Filename)%(Extension)" />
+    <Compile Include="../../MinRepoMobile/Services/IMinRepoPageSource.cs" Link="Services/IMinRepoPageSource.cs" />
     <Compile Include="../../MinRepoMobile/Services/RespectfulMinRepoClient.cs" Link="Services/RespectfulMinRepoClient.cs" />
     <Compile Include="../../MinRepoMobile/Services/CsvZipExporter.cs" Link="Services/CsvZipExporter.cs" />
     <Compile Include="../../MinRepoMobile/Services/BackgroundExtractionCoordinator.cs" Link="Services/BackgroundExtractionCoordinator.cs" />

@@ -6,6 +6,7 @@
     Title="みんレポ抽出"
     BackgroundColor="{StaticResource Surface}">
 
+    <Grid>
     <ScrollView>
         <VerticalStackLayout Padding="18" Spacing="14">
             <Label
@@ -346,10 +347,26 @@
                 Stroke="#F0D98A"
                 StrokeShape="RoundRectangle 10">
                 <Label
-                    Text="取得中は画面を閉じても継続し、進捗と結果を通知します。端末の強制停止・再起動時は中断されます。出力は個人分析用です。引用・公開時はCSVの出典URLを併記してください。"
+                    Text="取得中はアプリ内でサイトを自動表示し、画面の点灯を維持します。確認画面が出た場合だけ操作してください。画面を閉じるとサイトの読み込みが止まる場合があります。完了・失敗は通知します。引用・公開時はCSVの出典URLを併記してください。"
                     FontSize="12"
                     TextColor="#6D5700" />
             </Border>
         </VerticalStackLayout>
     </ScrollView>
+    <!-- 実ブラウザーを画面へ接続したまま取得し、必要な確認操作も同じ場所で完結させます。 -->
+    <Grid x:Name="BrowserPanel" IsVisible="False" BackgroundColor="White"
+          RowDefinitions="Auto,*,Auto" Padding="8" RowSpacing="8">
+        <VerticalStackLayout Grid.Row="0" Spacing="4">
+            <Label Text="サイトから取得中" FontSize="20" FontAttributes="Bold" />
+            <Label x:Name="BrowserStatusLabel" Text="読み込みを準備しています。" />
+            <Label x:Name="BrowserHintLabel"
+                   Text="通常は操作不要です。確認画面が出た場合だけ操作してください。"
+                   FontSize="12" TextColor="{StaticResource TextSecondary}" />
+            <ProgressBar x:Name="BrowserProgressBar" ProgressColor="{StaticResource Accent}" />
+        </VerticalStackLayout>
+        <WebView x:Name="AcquisitionWebView" Grid.Row="1" />
+        <Button Grid.Row="2" Text="取得を中止して戻る" Clicked="OnCancelClicked"
+                BackgroundColor="#E7ECF2" TextColor="{StaticResource TextPrimary}" />
+    </Grid>
+    </Grid>
 </ContentPage>

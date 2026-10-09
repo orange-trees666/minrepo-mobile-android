@@ -6,11 +6,13 @@ on:
     paths:
       - "MinRepoMobile/**"
       - ".github/workflows/android-debug-apk.yml"
+      - ".github/scripts/**"
       - "tests/**"
   pull_request:
     paths:
       - "MinRepoMobile/**"
       - ".github/workflows/android-debug-apk.yml"
+      - ".github/scripts/**"
       - "tests/**"
   workflow_dispatch:
 
@@ -70,7 +72,9 @@ jobs:
 
   build:
     needs: [prune-old-artifacts, regression]
-    runs-on: windows-latest
+    # KVM対応Linux上で、署名APKを実Androidのブラウザーまで通して検証します。
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
 
     steps:
       - name: Checkout
@@ -84,12 +88,19 @@ jobs:
       - name: Install Android workload
         run: dotnet workload install maui-android
 
+      - name: Select Android Java
+        run: echo "JAVA_HOME=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
+
       - name: Restore
-        run: dotnet restore .\MinRepoMobile\MinRepoMobile.csproj
+        run: dotnet restore MinRepoMobile/MinRepoMobile.csproj
 
       # Debug APKはテスト導入用です。一般配布時は独自の署名鍵でRelease発行してください。
       - name: Build debug APK
-        run: dotnet build .\MinRepoMobile\MinRepoMobile.csproj -f net10.0-android -c Debug
+        run: dotnet build MinRepoMobile/MinRepoMobile.csproj -f net10.0-android -c Debug
+
+      # Cookie・JS再読込と実レポート371台の取得に成功したAPKだけを保存します。
+      - name: Verify browser extraction on Android
+        run: bash .github/scripts/android-browser-smoke.sh
 
       # PRではビルド確認だけを行い、容量を消費するAPKは保存しません。
       - name: Upload APK
@@ -98,7 +109,7 @@ jobs:
         with:
           name: minrepo-mobile-debug-apk
           # 端末へ単体でインストールできる署名済みAPKだけを保存します。
-          path: MinRepoMobile\bin\Debug\net10.0-android\**\*-Signed.apk
+          path: MinRepoMobile/bin/Debug/net10.0-android/**/*-Signed.apk
           if-no-files-found: error
           retention-days: 7
 

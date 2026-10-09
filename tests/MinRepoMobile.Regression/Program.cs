@@ -211,6 +211,70 @@ try
         return Task.CompletedTask;
     });
 
+    await Test("HTTP 200の確認用JSを実レポートとして採用しない", () =>
+    {
+        const string challenge = "<script>fetch('/wp-admin/admin-ajax.php',{method:'POST'}).then(()=>location.reload())</script>";
+        foreach (var url in new[] { "https://min-repo.com/1/", "https://min-repo.com/1/?kishu=all", "https://min-repo.com/1/?kishu=test", "https://min-repo.com/tag/test/" })
+            Check(MinRepoBrowserReadiness.GetFingerprint(challenge, new(url)) is null, "JSだけでは未完成");
+        return Task.CompletedTask;
+    });
+
+    await Test("現行トップの371台・総差枚34650を識別", () =>
+    {
+        var fingerprint = MinRepoBrowserReadiness.GetFingerprint(
+            "<h1>10/8(木) 楽園池袋店グリーンサイド</h1><div>2026年10月9日</div><table><tr><td>勝率</td><td>149/371</td></tr><tr><td>総差枚</td><td>+34,650</td></tr></table>", new("https://min-repo.com/3398462/"));
+        Check(fingerprint == "2026-10-08|371|34650", "対象日・台数・差枚");
+        return Task.CompletedTask;
+    });
+
+    await Test("見出しだけの描画途中は全台表と判定しない", () =>
+    {
+        Check(MinRepoBrowserReadiness.GetFingerprint(
+            "<h1>10/8(木) テスト店</h1><div>2026年10月9日</div><h2>全台 データ一覧</h2>", new("https://min-repo.com/1/?kishu=all")) is null, "必須表を待機");
+        return Task.CompletedTask;
+    });
+
+    await Test("別レポート・別クエリ・外部ページのHTMLを拒否", () =>
+    {
+        var requested = new Uri("https://min-repo.com/1/?kishu=all");
+        Check(MinRepoBrowserReadiness.IsRequestedDocument(requested, new("https://www.min-repo.com/1/?kishu=all#data")), "wwwとフラグメントを許容");
+        foreach (var url in new[] { "https://min-repo.com/2/?kishu=all", "https://min-repo.com/1/?kishu=test", "https://example.com/1/?kishu=all" })
+            Check(!MinRepoBrowserReadiness.IsRequestedDocument(requested, new(url)), "混入を拒否");
+        return Task.CompletedTask;
+    });
+
+    await Test("ブラウザー遷移もrobots確認と5秒間隔を共有", async () =>
+    {
+        var clock = new TestClock();
+        var handler = new ScriptedHandler(clock, _ => Html("User-agent: *\nAllow: /"));
+        var client = Client(handler, clock);
+        var uri = new Uri("https://min-repo.com/1/");
+        await client.AuthorizeBrowserNavigationAsync(uri, TimeSpan.FromSeconds(5), default);
+        var first = clock.Now;
+        await client.AuthorizeBrowserNavigationAsync(uri, TimeSpan.FromSeconds(5), default);
+        Check(handler.Requests.Count == 1, "HTMLはWebViewのみが取得");
+        Check((clock.Now - first).TotalSeconds >= 5, "ブラウザー再読込の取得間隔");
+    });
+
+    await Test("robotsの代わりに確認用HTMLが返ったら停止", async () =>
+    {
+        var clock = new TestClock();
+        var handler = new ScriptedHandler(clock, _ => Html("<script>location.reload()</script>"));
+        await Throws<PageAcquisitionException>(() => Client(handler, clock).AuthorizeBrowserNavigationAsync(new("https://min-repo.com/1/"), TimeSpan.FromSeconds(5), default));
+        Check(handler.Requests.Count == 1, "不明なポリシーで本文取得しない");
+    });
+
+    await Test("ブラウザー確認の継続時は部分モードでも全日分の再試行を停止", async () =>
+    {
+        var source = new ScriptedPageSource(uri => uri.AbsolutePath.StartsWith("/tag/")
+            ? "<h2>店舗 データ一覧</h2><table><tr><td><a href='/1/'>10/8</a></td><td><a href='/2/'>10/7</a></td></tr></table>"
+            : throw new PageAcquisitionException("確認画面が継続"));
+        var request = Request() with { SourceUrl = "https://min-repo.com/tag/test/", IsStoreMode = true, CreatePartialOutput = true, MaxReports = 2 };
+        var result = await new MinRepoExtractionService(source).ExtractAsync(request, null, default);
+        Check(result.RowCount == 0 && result.FailureCount == 1, "単一の診断を保存");
+        Check(source.Requests.Count == 2 && source.Requests[1].AbsolutePath == "/1/", "残りの全台・次の日を取得しない");
+    });
+
     Console.WriteLine($"PASS: {passed} regression checks");
 }
 finally
@@ -312,5 +376,17 @@ sealed class ScriptedHandler(TestClock clock, Func<Uri, HttpResponseMessage> res
         token.ThrowIfCancellationRequested();
         Requests.Add((request.RequestUri!, clock.Now));
         return Task.FromResult(response(request.RequestUri!));
+    }
+}
+
+// ブラウザー取得口の失敗を、Androidや実通信に依存せずサービス全体へ流します。
+sealed class ScriptedPageSource(Func<Uri, string> response) : IMinRepoPageSource
+{
+    public List<Uri> Requests { get; } = [];
+    public Task<string> GetTextAsync(Uri uri, TimeSpan delay, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        Requests.Add(uri);
+        return Task.FromResult(response(uri));
     }
 }
