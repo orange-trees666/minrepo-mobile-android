@@ -1,0 +1,94 @@
+name: Package tested APK directly
+
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/package-tested-apk.yml"]
+  workflow_dispatch:
+    inputs:
+      source_run:
+        description: Successful main Android build run ID
+        type: string
+        default: "39538996055"
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # Reuse the tested installer. This job never rebuilds or changes application bytes.
+      - name: Check source build and expected application version
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ inputs.source_run || '39538996055' }}
+        run: |
+          python3 - <<'PY'
+          import os,subprocess,json,base64,xml.etree.ElementTree as ET
+          run_id=os.environ['SOURCE_RUN']
+          assert run_id.isdecimal(), 'Source run ID must be numeric'
+          repo=os.environ['GITHUB_REPOSITORY']
+          def api(path):
+              return json.loads(subprocess.check_output(['gh','api',path],text=True))
+          run=api(f'repos/{repo}/actions/runs/{run_id}')
+          assert run['conclusion']=='success' and run['head_branch']=='main' and run['event']=='push',run['conclusion']
+          assert run['path']=='.github/workflows/android-debug-apk.yml',run['path']
+          assert run['repository']['full_name']==repo
+          source=api(f"repos/{repo}/contents/MinRepoMobile/MinRepoMobile.csproj?ref={run['head_sha']}")
+          project=ET.fromstring(base64.b64decode(source['content']))
+          expected={k:project.findtext('.//'+k) for k in ['ApplicationId','ApplicationDisplayVersion','ApplicationVersion']}
+          expected['sourceSha']=run['head_sha']
+          open('expected.json','w').write(json.dumps(expected))
+          print(json.dumps(expected))
+          with open(os.environ['GITHUB_OUTPUT'],'a') as out:
+              print('run_id='+run_id,file=out)
+          PY
+      - name: Download the already tested signed APK
+        uses: actions/download-artifact@v8
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.source.outputs.run_id }}
+          name: minrepo-mobile-debug-apk
+          path: tested-apk
+      - name: Select Android Java
+        run: echo "JAVA_HOME=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
+      - name: Verify signature, package, embedded code and checksums
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os,json,subprocess,shlex,zipfile,hashlib,shutil
+          expected=json.load(open('expected.json'))
+          paths=list(Path('tested-apk').rglob('*-Signed.apk'))
+          assert len(paths)==1,paths
+          apk=paths[0]
+          sdk=Path(os.environ['ANDROID_HOME'])/'build-tools'
+          signer=sorted(sdk.glob('*/apksigner'))[-1]
+          aapt=sorted(sdk.glob('*/aapt'))[-1]
+          subprocess.run([str(signer),'verify','--verbose','--print-certs',str(apk)],check=True)
+          line=subprocess.check_output([str(aapt),'dump','badging',str(apk)],text=True).splitlines()[0]
+          attrs=dict(token.split('=',1) for token in shlex.split(line) if '=' in token)
+          assert attrs['name']==expected['ApplicationId'],attrs
+          assert attrs['versionName']==expected['ApplicationDisplayVersion'],attrs
+          assert attrs['versionCode']==expected['ApplicationVersion'],attrs
+          with zipfile.ZipFile(apk) as archive:
+              assert archive.testzip() is None
+              embedded=[n for n in archive.namelist() if n.startswith('lib/arm64-v8a/') and ('assembl' in n.lower() or 'minrepo' in n.lower())]
+              assert embedded,'ARM64 executable assemblies are missing'
+          output=Path('publish/minrepo-latest.apk')
+          output.parent.mkdir()
+          shutil.copyfile(apk,output)
+          data=output.read_bytes()
+          print(json.dumps({'size':len(data),'sha256':hashlib.sha256(data).hexdigest(),'md5':hashlib.md5(data).hexdigest(),'manifest':attrs,'embeddedCode':embedded,'sourceSha':expected['sourceSha']}))
+          PY
+      # A raw single-file artifact can be downloaded and installed without extracting a wrapper ZIP.
+      - name: Upload directly installable APK
+        uses: actions/upload-artifact@v7
+        with:
+          path: publish/minrepo-latest.apk
+          archive: false
+          retention-days: 7
