@@ -28,11 +28,20 @@ internal static class BrowserSmokeTests
             // 最初は表を持たないJSだけを返します。実WebViewがCookieを設定し、再読込した後に表を返します。
             browserPages.SetTestResponses(uri =>
             {
+                if (uri.AbsolutePath == "/wp-admin/admin-ajax.php") return "{\"success\":true}";
                 if (CookieManager.Instance!.GetCookie(uri.AbsoluteUri)?.Contains("browser_fixture=1") != true)
                     return """
                         <html><body>確認中<script>
-                        setTimeout(function(){document.cookie='browser_fixture=1; path=/';
-                        window.location.href=window.location.href;},300);
+                        (async function(){
+                          const response=await fetch('/wp-admin/admin-ajax.php', {
+                            method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                            body:'action=browser_fixture'
+                          });
+                          if(response.ok && (await response.json()).success){
+                            document.cookie='browser_fixture=1; path=/';
+                            window.location.href=window.location.href;
+                          }
+                        })();
                         </script></body></html>
                         """;
                 return Fixture(uri.Query);

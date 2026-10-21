@@ -24,7 +24,17 @@ sudo chmod a+rw /dev/kvm
   -no-boot-anim -no-snapshot -gpu software -memory 2048 \
   > "$test_dir/emulator.log" 2>&1 &
 emulator_pid=$!
-trap 'kill "$emulator_pid" 2>/dev/null || true' EXIT
+capture_result() {
+  result_code=$?
+  set +e
+  "$adb_cmd" logcat -d -s MinRepoBrowserTest AndroidRuntime chromium > "$test_dir/browser.log" 2>&1
+  if [[ "$result_code" != 0 ]]; then
+    "$adb_cmd" exec-out screencap -p > "$test_dir/failure.png" 2>/dev/null
+  fi
+  kill "$emulator_pid" 2>/dev/null || true
+  exit "$result_code"
+}
+trap capture_result EXIT
 booted=false
 for attempt in {1..90}; do
   if ! kill -0 "$emulator_pid" 2>/dev/null; then

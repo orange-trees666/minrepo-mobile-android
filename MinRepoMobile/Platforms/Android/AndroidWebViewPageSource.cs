@@ -19,7 +19,7 @@ public sealed class AndroidWebViewPageSource : IMinRepoPageSource
     private RespectfulMinRepoClient _policy = new();
     private readonly SemaphoreSlim _serial = new(1, 1);
     private NativeWebView? _browser;
-    private Operation? _active;
+    private volatile Operation? _active;
 
     public event Action<string>? StatusChanged;
 
@@ -145,43 +145,18 @@ public sealed class AndroidWebViewPageSource : IMinRepoPageSource
         return json is null ? null : JsonSerializer.Deserialize<Snapshot>(json);
     }
 
-    /// <summary>JavaScriptによる再読込・リダイレクトにもページ取得間隔を適用します。</summary>
-    private async Task NavigateAsync(Operation operation, Uri uri)
-    {
-        try
-        {
-            if (++operation.Navigations > 12)
-                throw new PageAcquisitionException("サイトの確認画面が繰り返されたため取得を停止しました。");
-            await _policy.AuthorizeBrowserNavigationAsync(uri, operation.Delay, operation.Token);
-            await MainThread.InvokeOnMainThreadAsync(() =>
-            {
-                if (!ReferenceEquals(_active, operation) || operation.Token.IsCancellationRequested) return;
-                operation.Loaded = false;
-                // LoadUrlへ置き換えると、JS遷移の参照元・ブラウザーの文脈が失われます。
-                // 間隔確認後は同じ文書から遷移し、次の1回だけWebView自身に処理させます。
-                operation.AuthorizedNavigation = uri;
-                _browser?.EvaluateJavascript("window.location.href=" + JsonSerializer.Serialize(uri.AbsoluteUri), null);
-            });
-        }
-        catch (OperationCanceledException) { }
-        catch (Exception ex)
-        {
-            await MainThread.InvokeOnMainThreadAsync(() => operation.Error = ex);
-        }
-    }
-
     private sealed class Operation(Uri uri, TimeSpan delay, CancellationToken token)
     {
         public Uri Uri { get; } = uri;
         public TimeSpan Delay { get; } = delay;
         public CancellationToken Token { get; } = token;
-        public bool Loaded { get; set; }
-        public int Navigations { get; set; }
-        public Uri? AuthorizedNavigation { get; set; }
+        public volatile bool Loaded;
+        public int Requests;
+        public int Navigations => Math.Max(0, Volatile.Read(ref Requests) - 1);
 #if DEBUG
         public string? DiagnosticShape { get; set; }
 #endif
-        public Exception? Error { get; set; }
+        public volatile Exception? Error;
     }
 
     private sealed record Snapshot(string Url, string Html, string Ready);
@@ -203,14 +178,10 @@ public sealed class AndroidWebViewPageSource : IMinRepoPageSource
             if (operation is null || request?.Url is null) return true;
             if (!Uri.TryCreate(request.Url.ToString(), UriKind.Absolute, out var uri) ||
                 !MinRepoBrowserReadiness.IsRequestedDocument(operation.Uri, uri)) return true;
-            if (operation.AuthorizedNavigation is { } authorized &&
-                MinRepoBrowserReadiness.IsRequestedDocument(authorized, uri))
-            {
-                operation.AuthorizedNavigation = null;
-                return false;
-            }
-            _ = owner.NavigateAsync(operation, uri);
-            return true;
+            // 遷移をキャンセルして作り直すと、同じ文書でのfetch完了・Cookie反映・
+            // Refererの連続性が失われます。許可した文書はWebView自身に遷移させます。
+            // 通信間隔はUIスレッドではなくShouldInterceptRequestで制御します。
+            return false;
         }
 
         public override void OnPageStarted(NativeWebView? view, string? url, global::Android.Graphics.Bitmap? favicon)
@@ -253,16 +224,59 @@ public sealed class AndroidWebViewPageSource : IMinRepoPageSource
             return true;
         }
 
-#if DEBUG
-        // 実AndroidのJS・Cookie・再読込を通信なしで試験する、CI専用の応答差替えです。
+        /// <summary>
+        /// ブラウザーが生成したメイン文書リクエストを、送信前のIOスレッドで調整します。
+        /// JS遷移の取り消しやHTMLの再注入を行わず、Cookieと参照元をブラウザーに保持させます。
+        /// </summary>
         public override WebResourceResponse? ShouldInterceptRequest(NativeWebView? view, IWebResourceRequest? request)
         {
-            if (owner._testResponses is null || request?.Url is null ||
-                !Uri.TryCreate(request.Url.ToString(), UriKind.Absolute, out var uri)) return null;
-            var html = owner._testResponses(uri);
-            return new WebResourceResponse("text/html", "UTF-8", new MemoryStream(Encoding.UTF8.GetBytes(html)));
-        }
+            if (request?.Url is null || !Uri.TryCreate(request.Url.ToString(), UriKind.Absolute, out var uri))
+                return null;
+            if (request.IsForMainFrame)
+            {
+                var operation = owner._active;
+                if (operation is null) return EmptyResponse();
+                try
+                {
+                    if (!MinRepoBrowserReadiness.IsRequestedDocument(operation.Uri, uri))
+                        throw new PageAcquisitionException("取得対象と異なるページへの移動を停止しました。");
+                    var requests = Interlocked.Increment(ref operation.Requests);
+                    if (requests > 4)
+                        throw new PageAcquisitionException("サイトの確認画面が繰り返されたため取得を停止しました。");
+                    // 最初の要求はGetTextAsyncで認可済みです。JS再読込分だけをここで待機します。
+                    // このコールバックはAndroidのIOスレッドで呼ばれ、画面操作は妨げません。
+                    if (requests > 1)
+                        owner._policy.AuthorizeBrowserNavigationAsync(uri, operation.Delay, operation.Token)
+                            .GetAwaiter().GetResult();
+                    operation.Token.ThrowIfCancellationRequested();
+#if DEBUG
+                    if (owner.DiagnosticsEnabled)
+                        global::Android.Util.Log.Info("MinRepoBrowserTest", $"Document request: {uri} count={requests}");
 #endif
+                }
+                catch (OperationCanceledException) { return EmptyResponse(); }
+                catch (Exception ex)
+                {
+                    operation.Error = ex is PageAcquisitionException ? ex :
+                        new PageAcquisitionException($"ページ取得の確認に失敗しました: {ex.Message}", ex);
+                    return EmptyResponse();
+                }
+            }
+#if DEBUG
+            // 応答だけを差し替え、実WebViewのJS・fetch・Cookie・遷移はそのまま実行します。
+            if (owner._testResponses is not null)
+            {
+                var html = owner._testResponses(uri);
+                var mime = uri.AbsolutePath == "/wp-admin/admin-ajax.php" ? "application/json" : "text/html";
+                return new WebResourceResponse(mime, "UTF-8", new MemoryStream(Encoding.UTF8.GetBytes(html)));
+            }
+#endif
+            return null;
+        }
+
+        private static WebResourceResponse EmptyResponse()
+            => new("text/html", "UTF-8", new MemoryStream());
+
     }
 
 #if DEBUG
