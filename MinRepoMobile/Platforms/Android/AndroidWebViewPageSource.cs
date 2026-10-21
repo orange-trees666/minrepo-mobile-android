@@ -119,6 +119,25 @@ public sealed class AndroidWebViewPageSource : IMinRepoPageSource
         }
         finally
         {
+#if DEBUG
+            if (DiagnosticsEnabled)
+            {
+                try
+                {
+                    using var capture = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                    var last = await MainThread.InvokeOnMainThreadAsync(() =>
+                        _browser is null ? Task.FromResult<Snapshot?>(null) : SnapshotAsync(_browser, capture.Token));
+                    if (last is not null)
+                    {
+                        await File.WriteAllTextAsync(Path.Combine(Microsoft.Maui.Storage.FileSystem.AppDataDirectory,
+                            "browser-final.html"), last.Html);
+                        global::Android.Util.Log.Info("MinRepoBrowserTest",
+                            $"Final DOM: url={last.Url} ready={last.Ready} length={last.Html.Length}");
+                    }
+                }
+                catch (Exception ex) { global::Android.Util.Log.Info("MinRepoBrowserTest", $"DOM capture: {ex.Message}"); }
+            }
+#endif
             await MainThread.InvokeOnMainThreadAsync(() =>
             {
                 if (ReferenceEquals(_active, operation))
@@ -281,6 +300,27 @@ public sealed class AndroidWebViewPageSource : IMinRepoPageSource
 
 #if DEBUG
     internal bool DiagnosticsEnabled { get; set; }
+    private WebChromeClient? _originalChromeClient;
+    internal void StartDiagnostics()
+    {
+        if (_browser is null) return;
+        _originalChromeClient = _browser.WebChromeClient;
+        _browser.SetWebChromeClient(new DiagnosticChromeClient());
+        var package = NativeWebView.CurrentWebViewPackage;
+        global::Android.Util.Log.Info("MinRepoBrowserTest", $"WebView version={package?.VersionName}");
+    }
+    internal void StopDiagnostics()
+    {
+        if (_browser is not null) _browser.SetWebChromeClient(_originalChromeClient);
+    }
+    private sealed class DiagnosticChromeClient : WebChromeClient
+    {
+        public override bool OnConsoleMessage(ConsoleMessage? message)
+        {
+            global::Android.Util.Log.Info("MinRepoBrowserTest", $"JS: {message?.Message()}");
+            return true;
+        }
+    }
     private Func<Uri, string>? _testResponses;
     internal void SetTestResponses(Func<Uri, string>? responses)
     {

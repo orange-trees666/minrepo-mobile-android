@@ -111,6 +111,7 @@ jobs:
           path: |
             ${{ runner.temp }}/minrepo-browser-test/result.json
             ${{ runner.temp }}/minrepo-browser-test/browser.log
+            ${{ runner.temp }}/minrepo-browser-test/browser-final.html
             ${{ runner.temp }}/minrepo-browser-test/failure.png
           if-no-files-found: ignore
           retention-days: 2

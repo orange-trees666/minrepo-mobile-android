@@ -12,12 +12,12 @@ mkdir -p "$ANDROID_AVD_HOME"
 # headlessでもemulator実行ファイルがリンクするLinuxライブラリーを用意します。
 sudo apt-get update -qq
 sudo apt-get install -y libpulse0 libglu1-mesa libxcb-cursor0
-"$sdk_tools/sdkmanager" "emulator" "system-images;android-35;google_apis;x86_64"
+"$sdk_tools/sdkmanager" "emulator" "system-images;android-36.1;google_apis;x86_64"
 printf 'no\n' | "$sdk_tools/avdmanager" create avd --force --name minrepo-browser \
-  --package "system-images;android-35;google_apis;x86_64" --device pixel_7 \
+  --package "system-images;android-36.1;google_apis;x86_64" --device pixel_7 \
   --path "$ANDROID_AVD_HOME/minrepo-browser.avd"
 # avdmanagerの版によらず、emulatorが参照する登録ファイルも明示します。
-printf 'avd.ini.encoding=UTF-8\npath=%s\ntarget=android-35\n' \
+printf 'avd.ini.encoding=UTF-8\npath=%s\ntarget=android-36.1\n' \
   "$ANDROID_AVD_HOME/minrepo-browser.avd" > "$ANDROID_AVD_HOME/minrepo-browser.ini"
 sudo chmod a+rw /dev/kvm
 "$ANDROID_HOME/emulator/emulator" -avd minrepo-browser -no-window -no-audio \
@@ -28,6 +28,7 @@ capture_result() {
   result_code=$?
   set +e
   "$adb_cmd" logcat -d -s MinRepoBrowserTest AndroidRuntime chromium > "$test_dir/browser.log" 2>&1
+  "$adb_cmd" shell run-as jp.minrepo.mobileextractor cat files/browser-final.html > "$test_dir/browser-final.html" 2>/dev/null
   if [[ "$result_code" != 0 ]]; then
     "$adb_cmd" exec-out screencap -p > "$test_dir/failure.png" 2>/dev/null
   fi

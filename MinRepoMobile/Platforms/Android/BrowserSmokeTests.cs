@@ -23,6 +23,7 @@ internal static class BrowserSmokeTests
         string? error = null;
         page.ShowBrowserForSmokeTest(true);
         browserPages.DiagnosticsEnabled = true;
+        browserPages.StartDiagnostics();
         try
         {
             // 最初は表を持たないJSだけを返します。実WebViewがCookieを設定し、再読込した後に表を返します。
@@ -75,8 +76,9 @@ internal static class BrowserSmokeTests
         finally
         {
             browserPages.SetTestResponses(null);
+            browserPages.StopDiagnostics();
             browserPages.DiagnosticsEnabled = false;
-            page.ShowBrowserForSmokeTest(false);
+            if (success) page.ShowBrowserForSmokeTest(false);
             var json = JsonSerializer.Serialize(new { success, results, error });
             await File.WriteAllTextAsync(Path.Combine(FileSystem.AppDataDirectory, "browser-smoke.json"), json);
             global::Android.Util.Log.Info("MinRepoBrowserTest", json);
