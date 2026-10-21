@@ -108,7 +108,7 @@ public sealed class AndroidWebViewPageSource : IMinRepoPageSource
         {
             throw new PageAcquisitionException(
                 "サイトの確認画面が続くか、必要なデータ表が表示されず、2分で停止しました。" +
-                "確認画面を操作しても進まない場合は、通信回線を確認して再実行してください。");
+                "Chromeで対象ページを開き、取得ファイルを保存して「取得ファイルを読み込む」を選んでください。");
         }
         catch (Exception ex) when (ex is not OperationCanceledException and not PageAcquisitionException &&
             !(ex is HttpRequestException http && http.StatusCode == HttpStatusCode.NotFound))

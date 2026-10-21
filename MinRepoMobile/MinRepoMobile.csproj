@@ -48,4 +48,8 @@
     <MauiAsset Include="Resources\Raw\**"
                LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
+  <ItemGroup Condition="'$(Configuration)' == 'Debug'">
+    <MauiAsset Include="../tests/fixtures/collector-output.json" LogicalName="collector-output.json" />
+    <MauiAsset Include="../tests/fixtures/minrepo-3398462-detail.html" LogicalName="minrepo-3398462-detail.html" />
+  </ItemGroup>
 </Project>

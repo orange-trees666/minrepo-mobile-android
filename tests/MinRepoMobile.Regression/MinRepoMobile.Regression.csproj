@@ -15,4 +15,6 @@
     <Compile Include="../../MinRepoMobile/Services/CsvZipExporter.cs" Link="Services/CsvZipExporter.cs" />
     <Compile Include="../../MinRepoMobile/Services/BackgroundExtractionCoordinator.cs" Link="Services/BackgroundExtractionCoordinator.cs" />
   </ItemGroup>
+  <ItemGroup><None Include="../fixtures/collector-output.json" Link="collector-output.json" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
+  <ItemGroup><None Include="../fixtures/minrepo-3398462-detail.html" Link="minrepo-3398462-detail.html" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
 </Project>

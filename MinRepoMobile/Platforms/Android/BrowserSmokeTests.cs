@@ -21,6 +21,8 @@ internal static class BrowserSmokeTests
         var results = new List<object>();
         var success = false;
         string? error = null;
+        bool liveSuccess = false;
+        string? liveError = null;
         page.ShowBrowserForSmokeTest(true);
         browserPages.DiagnosticsEnabled = true;
         browserPages.StartDiagnostics();
@@ -59,18 +61,47 @@ internal static class BrowserSmokeTests
             }
             results.Add(new { test = "android-js-cookie-reload-csv", rows = fixture.RowCount, failures = fixture.FailureCount });
 
-            // 公開レポート1日分だけを実取得します。成功判定には行数だけでなく完全取得モードの照合を使います。
-            browserPages.SetTestResponses(null);
-            // 模擬サイトのCookieを残した状態では、新規インストール時の取得を再現できません。
-            var removed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            await MainThread.InvokeOnMainThreadAsync(() =>
-                CookieManager.Instance!.RemoveAllCookies(new CookieRemoved(removed)));
-            await removed.Task.WaitAsync(TimeSpan.FromSeconds(10));
-            var live = await Task.Run(() => extractor.ExtractAsync(Request("https://min-repo.com/3398462/", false), null, default));
-            if (live.RowCount != 371 || live.ReportCount != 1 || live.FailureCount != 0)
-                throw new InvalidOperationException($"実サイトの全台照合に失敗しました: {live.RowCount}台 / {live.FailureCount}件");
-            results.Add(new { test = "live-report-3398462", rows = live.RowCount, failures = live.FailureCount, zipPath = live.ZipPath });
-            success = true;
+            // 本番のChrome取得JSが生成したJSONを、Androidで通信なしに取り込みます。
+            using (var input = await FileSystem.OpenAppPackageFileAsync("collector-output.json"))
+            {
+                var archive = await MinRepoHtmlArchive.LoadAsync(input, default);
+                var imported = await Task.Run(() => new MinRepoExtractionService(archive).ExtractAsync(archive.CreateRequest(), null, default));
+                if (imported.RowCount != 1 || imported.FailureCount != 0)
+                    throw new InvalidOperationException("ChromeファイルのAndroid取込に失敗しました。");
+                using var zip = ZipFile.OpenRead(imported.ZipPath);
+                using var raw = new StreamReader(zip.GetEntry("01_台別詳細.csv")!.Open());
+                using var totals = new StreamReader(zip.GetEntry("10_店舗掲載値と照合.csv")!.Open());
+                if (!raw.ReadToEnd().Contains(",-300,1000,1000,90.00,2,1,") ||
+                    !totals.ReadToEnd().Contains(",1,-300,1,-300,0,一致,一致,"))
+                    throw new InvalidOperationException("取込後のBB/RB・掲載値CSVが一致しません。");
+                results.Add(new { test = "android-chrome-file-import-zip", rows = imported.RowCount, failures = imported.FailureCount });
+            }
+            using (var input = await FileSystem.OpenAppPackageFileAsync("minrepo-3398462-detail.html"))
+            using (var reader = new StreamReader(input))
+            {
+                var details = new MinRepoHtmlParser().ParseMachineDetails(await reader.ReadToEndAsync(),
+                    new("https://min-repo.com/3398462/?kishu=test"));
+                if (details.Count != 32 || details[4082].Difference is not null || details[4082].Bb != 20 || details[4082].Rb != 13)
+                    throw new InvalidOperationException("公開機種32台の現行形式の解析に失敗しました。");
+                results.Add(new { test = "public-html-snapshot-32-units", rows = details.Count });
+            }
+            success = true; // 模擬ブラウザー・本番JSファイル取込・実HTML形式の必須チェック。
+            try
+            {
+                // 公開レポート1日分だけを実取得します。成功判定には行数だけでなく完全取得モードの照合を使います。
+                browserPages.SetTestResponses(null);
+                // 模擬サイトのCookieを残した状態では、新規インストール時の取得を再現できません。
+                var removed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                await MainThread.InvokeOnMainThreadAsync(() =>
+                    CookieManager.Instance!.RemoveAllCookies(new CookieRemoved(removed)));
+                await removed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+                var live = await Task.Run(() => extractor.ExtractAsync(Request("https://min-repo.com/3398462/", false), null, default));
+                if (live.RowCount != 371 || live.ReportCount != 1 || live.FailureCount != 0)
+                    throw new InvalidOperationException($"実サイトの全台照合に失敗しました: {live.RowCount}台 / {live.FailureCount}件");
+                results.Add(new { test = "live-report-3398462", rows = live.RowCount, failures = live.FailureCount, zipPath = live.ZipPath });
+                liveSuccess = true;
+            }
+            catch (Exception ex) { liveError = ex.ToString(); }
         }
         catch (Exception ex) { error = ex.ToString(); }
         finally
@@ -78,8 +109,8 @@ internal static class BrowserSmokeTests
             browserPages.SetTestResponses(null);
             browserPages.StopDiagnostics();
             browserPages.DiagnosticsEnabled = false;
-            if (success) page.ShowBrowserForSmokeTest(false);
-            var json = JsonSerializer.Serialize(new { success, results, error });
+            if (success && liveSuccess) page.ShowBrowserForSmokeTest(false);
+            var json = JsonSerializer.Serialize(new { success, results, error, liveSuccess, liveError, releaseCriteria = "Android JS/Cookie fixture + Chrome JS archive import + public HTML format. Live native acquisition is reported separately; failure is not a live-site pass." });
             await File.WriteAllTextAsync(Path.Combine(FileSystem.AppDataDirectory, "browser-smoke.json"), json);
             global::Android.Util.Log.Info("MinRepoBrowserTest", json);
         }

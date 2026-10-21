@@ -74,6 +74,8 @@ try:
 except (ValueError, OSError):
     sys.exit(2)
 print(json.dumps(result,ensure_ascii=False,indent=2))
+if not result.get('liveSuccess'):
+    print('::warning::Native live-site acquisition failed. Chrome file import is the supported fallback; see liveError in test evidence.')
 sys.exit(0 if result['success'] else 1)
 PY
     then

@@ -51,6 +51,7 @@ public sealed class MinRepoExtractionService
         }
 
         var allRows = new List<SlotRow>();
+        var publishedTotals = new List<PublishedReportTotal>();
 
         for (var index = 0; index < reportUris.Count; index++)
         {
@@ -237,6 +238,9 @@ public sealed class MinRepoExtractionService
                 }
 
                 allRows.AddRange(reportRows);
+                publishedTotals.Add(new PublishedReportTotal(report.Store, report.ReportDate,
+                    expectedUnitCount, expectedTotalDifference, reportRows.Count,
+                    parsedTotalDifference, missingDifferenceCount, reportTopUri.AbsoluteUri));
             }
             catch (OperationCanceledException)
             {
@@ -282,7 +286,7 @@ public sealed class MinRepoExtractionService
             request.SourceUrl,
             request.Periods,
             request.Keys,
-            cancellationToken);
+            cancellationToken, publishedTotals);
 
         progress?.Report(new ExtractionProgress("ZIPを作成しました", 1));
         return new ExtractionResult(
@@ -522,7 +526,9 @@ public sealed class MinRepoExtractionService
     {
         var enriched = report.Rows.ToList();
         var detailUrls = report.Rows
-            .Where(row => !string.IsNullOrWhiteSpace(row.DetailUrl))
+            .Where(row => !string.IsNullOrWhiteSpace(row.DetailUrl) &&
+                (request.FetchBonusDetails || row.Difference is null ||
+                 (row.Games > 0 && row.PayoutRate is null)))
             .Select(row => row.DetailUrl!)
             .Concat(report.PendingRows.Select(row => row.DetailUrl))
             .Distinct(StringComparer.OrdinalIgnoreCase)

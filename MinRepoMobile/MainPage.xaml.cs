@@ -4,6 +4,7 @@ using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.ApplicationModel.DataTransfer;
 using Microsoft.Maui.Devices;
 using Microsoft.Maui.Networking;
+using Microsoft.Maui.Storage;
 using MinRepoMobile.Platforms.Android;
 
 namespace MinRepoMobile;
@@ -228,6 +229,75 @@ public partial class MainPage : ContentPage
         PrefecturePicker.IsEnabled = !e.Value;
         StorePicker.IsEnabled = !e.Value;
         UpdateStoreSelectionSummary();
+    }
+
+    /// <summary>通常のChromeを開き、アプリ内WebViewと独立した通常の閲覧セッションを使います。</summary>
+    private async void OnOpenChromeClicked(object? sender, EventArgs e)
+    {
+        if (!TryCreateRequest(out var request, out var message))
+        {
+            await DisplayAlertAsync("入力確認", message, "OK");
+            return;
+        }
+        try
+        {
+            var uri = MinRepoUrl.Normalize(request!.SourceUrl, requireStorePath: request.IsStoreMode);
+            await Browser.Default.OpenAsync(uri, BrowserLaunchMode.External);
+        }
+        catch (Exception ex) { await DisplayAlertAsync("Chromeを開けませんでした", ex.Message, "OK"); }
+    }
+
+    /// <summary>初回だけ取得用ブックマークを設定します。Cookie等を取り出す処理は含みません。</summary>
+    private async void OnChromeSetupClicked(object? sender, EventArgs e)
+    {
+        try
+        {
+            using var stream = await FileSystem.OpenAppPackageFileAsync("minrepo-browser-collector.js");
+            using var reader = new StreamReader(stream);
+            var script = await reader.ReadToEndAsync();
+            await Clipboard.Default.SetTextAsync("javascript:" + Uri.EscapeDataString(script));
+            await DisplayAlertAsync("初回のChrome設定",
+                "取得機能をコピーしました。\n\n" +
+                "1. Chromeでブックマーク「みんレポ取得」を作成します。\n" +
+                "2. ブックマークを編集し、URL欄をコピーした内容に置き換えて保存します。\n\n" +
+                "次回からは、店舗一覧または日別レポートでそのブックマークを開くと取得できます。" +
+                "取得後、アプリの「取得ファイルを読み込む」で保存したJSONファイルを選んでください。",
+                "OK");
+        }
+        catch (Exception ex) { await DisplayAlertAsync("設定を準備できませんでした", ex.Message, "OK"); }
+    }
+
+    /// <summary>選択したファイルを既存の全台数・総差枚照合へ通し、通信なしでCSV/ZIPへ変換します。</summary>
+    private async void OnImportChromeClicked(object? sender, EventArgs e)
+    {
+        try
+        {
+            var file = await FilePicker.Default.PickAsync(new PickOptions
+            {
+                PickerTitle = "Chromeで保存したminrepo-browserファイルを選択",
+                FileTypes = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>>
+                {
+                    [DevicePlatform.Android] = new[] { "application/json", "text/plain", "application/octet-stream" },
+                }),
+            });
+            if (file is null) return;
+            TryCreateRequest(out var selection, out _);
+            var progress = new Progress<ExtractionProgress>(UpdateProgress);
+            await RunExtractionAsync(token => Task.Run(async () =>
+            {
+                using var input = await file.OpenReadAsync();
+                var archive = await MinRepoHtmlArchive.LoadAsync(input, token);
+                var request = archive.CreateRequest();
+                if (selection is not null) request = request with
+                {
+                    Periods = selection.Periods,
+                    Keys = selection.Keys,
+                    CreatePartialOutput = selection.CreatePartialOutput,
+                };
+                return await new MinRepoExtractionService(archive).ExtractAsync(request, progress, token);
+            }, token));
+        }
+        catch (Exception ex) { await DisplayAlertAsync("ファイルを開けませんでした", ex.Message, "OK"); }
     }
 
     private async void OnStartClicked(object? sender, EventArgs e)
@@ -539,6 +609,9 @@ public partial class MainPage : ContentPage
         // ブラウザーのJS実行が停止しないよう、通常取得も画面点灯を維持します。
         DeviceDisplay.Current.KeepScreenOn = isRunning;
         StartButton.IsEnabled = !isRunning;
+        OpenChromeButton.IsEnabled = !isRunning;
+        ChromeSetupButton.IsEnabled = !isRunning;
+        ImportChromeButton.IsEnabled = !isRunning;
         CancelButton.IsEnabled = isRunning;
         UrlEntry.IsEnabled = !isRunning;
         PrefecturePicker.IsEnabled =

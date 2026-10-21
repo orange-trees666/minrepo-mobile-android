@@ -66,6 +66,15 @@ jobs:
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
+      - name: Setup Node for browser collector checks
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Verify browser collector and archive format
+        run: |
+          npm ci --prefix tests/collector --ignore-scripts --no-audit --no-fund
+          node tests/collector/test.cjs
+          git diff --exit-code tests/fixtures/collector-output.json
       # 実コードを検証し、外部通信やAndroid SDKに依存せず早期に異常を検出します。
       - name: Run offline regression checks
         run: dotnet run --project tests/MinRepoMobile.Regression/MinRepoMobile.Regression.csproj -c Release
@@ -98,13 +107,14 @@ jobs:
       - name: Build debug APK
         run: dotnet build MinRepoMobile/MinRepoMobile.csproj -f net10.0-android -c Debug
 
-      # Cookie・JS再読込と実レポート371台の取得に成功したAPKだけを保存します。
-      - name: Verify browser extraction on Android
+      # JS/Cookie模擬取得・Chrome取得ファイル取込・実HTML形式のAndroid検証を配布条件にします。
+      # 外部サイトの直接取得は別の成否として明記し、失敗を成功と扱いません。
+      - name: Verify Android browser and Chrome file import
         run: bash .github/scripts/android-browser-smoke.sh
 
-      # 実サイトで失敗した場合の画面・通信概要を残し、同じ推測で再実行しません。
+      # ライブ取得の失敗も含め、必須チェックの成否と別々に診断結果を保存します。
       - name: Upload browser test evidence
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: browser-smoke-evidence-${{ github.run_id }}

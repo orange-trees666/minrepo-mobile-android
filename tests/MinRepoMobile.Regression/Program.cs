@@ -1,6 +1,8 @@
 using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
 using MinRepoMobile.Models;
 using MinRepoMobile.Services;
 using Microsoft.Maui.Storage;
@@ -275,6 +277,89 @@ try
         Check(source.Requests.Count == 2 && source.Requests[1].AbsolutePath == "/1/", "残りの全台・次の日を取得しない");
     });
 
+    await Test("Chrome取得ファイルから通信なしで差枚・BB/RB・掲載値のZIPを作成", async () =>
+    {
+        var archive = await LoadArchive(ArchiveFixture());
+        var result = await new MinRepoExtractionService(archive).ExtractAsync(archive.CreateRequest(), null, default);
+        Check(result.RowCount == 1 && result.FailureCount == 0, "完全取得");
+        Check(ReadZip(result.ZipPath, "01_台別詳細.csv").Contains(",-300,1000,1000,90.00,2,1,"), "明細");
+        Check(ReadZip(result.ZipPath, "10_店舗掲載値と照合.csv").Contains(",1,-300,1,-300,0,一致,一致,"), "独立した掲載値・照合");
+    });
+    await Test("Chrome取得ファイルの欠損ページは完全取得で拒否・部分出力で明記", async () =>
+    {
+        var document = ArchiveFixture();
+        document.Pages!.RemoveAt(2);
+        var archive = await LoadArchive(document);
+        await Throws<InvalidOperationException>(() => new MinRepoExtractionService(archive).ExtractAsync(archive.CreateRequest(), null, default));
+        var result = await new MinRepoExtractionService(archive).ExtractAsync(archive.CreateRequest() with { CreatePartialOutput = true }, null, default);
+        Check(result.RowCount == 1 && result.FailureCount > 0, "不足を隠さず保存");
+        Check(ReadZip(result.ZipPath, "00_取得失敗一覧.csv").Contains("必要なページがありません"), "ページ不足を明記");
+    });
+    await Test("差枚が非掲載でも掲載総差枚と全台数を別記し未照合を隠さない", async () =>
+    {
+        var document = ArchiveFixture();
+        document.Pages![1].Html = document.Pages[1].Html.Replace("<td>-300</td>", "<td>-</td>").Replace("<td>90%</td>", "<td>-</td>");
+        document.Pages[2].Html = document.Pages[2].Html.Replace("<td>-300</td>", "<td>-</td>").Replace("<td>90%</td>", "<td>-</td>");
+        var archive = await LoadArchive(document);
+        var result = await new MinRepoExtractionService(archive).ExtractAsync(archive.CreateRequest() with { CreatePartialOutput = true }, null, default);
+        Check(result.RowCount == 1 && result.FailureCount == 1, "非掲載を警告");
+        Check(ReadZip(result.ZipPath, "10_店舗掲載値と照合.csv").Contains(",1,-300,1,,1,一致,明細欠損のため未照合,"), "掲載値を明細合計と混同しない");
+    });
+    await Test("Chrome取得ファイルでも総差枚不一致を拒否", async () =>
+    {
+        var document = ArchiveFixture();
+        document.Pages![0].Html = document.Pages[0].Html.Replace("総差枚 -300", "総差枚 999");
+        var archive = await LoadArchive(document);
+        await Throws<InvalidOperationException>(() => new MinRepoExtractionService(archive).ExtractAsync(archive.CreateRequest(), null, default));
+    });
+    await Test("Chrome店舗ファイルは選択期間・取得日数と機種詳細を保持", async () =>
+    {
+        var document = ArchiveFixture(); document.SourceUrl = "https://min-repo.com/tag/test/";
+        document.FromDate = new(2026, 10, 8); document.ToDate = new(2026, 10, 8);
+        document.Pages!.Add(new() { Url = document.SourceUrl, Html = "<h1>取込試験店</h1><h2>データ一覧</h2><table><tr><td><a href='/1/'>10/8(木)</a></td></tr></table>" });
+        var archive = await LoadArchive(document); var request = archive.CreateRequest();
+        Check(request.IsStoreMode && request.MaxReports == 1 && request.FromDate == document.FromDate, "保存した期間");
+        var result = await new MinRepoExtractionService(archive).ExtractAsync(request, null, default);
+        Check(result.RowCount == 1 && result.FailureCount == 0, "店舗一覧を含めて完全取得");
+    });
+    await Test("外部URL・重複URL・確認画面の取得ファイルを拒否", async () =>
+    {
+        var document = ArchiveFixture(); document.Pages![1].Url = "https://example.com/1/?kishu=all";
+        await Throws<InvalidDataException>(() => LoadArchive(document));
+        document = ArchiveFixture(); document.Pages!.Add(document.Pages[0]);
+        await Throws<InvalidDataException>(() => LoadArchive(document));
+        document = ArchiveFixture(); document.Pages![0].Html = "<script>location.reload()</script>";
+        await Throws<InvalidDataException>(() => LoadArchive(document));
+    });
+    await Test("Chrome取得ファイルの形式違い・日付逆転・過大ページ・中止を拒否", async () =>
+    {
+        var document = ArchiveFixture(); document.Version = 9;
+        await Throws<InvalidDataException>(() => LoadArchive(document));
+        document = ArchiveFixture(); document.FromDate = new(2026,10,9); document.ToDate = new(2026,10,8);
+        await Throws<InvalidDataException>(() => LoadArchive(document));
+        document = ArchiveFixture(); document.Pages![0].Html = "<h1>" + new string('x',4*1024*1024);
+        await Throws<InvalidDataException>(() => LoadArchive(document));
+        using var input = new MemoryStream("{}"u8.ToArray());
+        using var cancellation = new CancellationTokenSource(); cancellation.Cancel();
+        await Throws<OperationCanceledException>(() => MinRepoHtmlArchive.LoadAsync(input,cancellation.Token));
+    });
+
+    await Test("現行公開HTMLの実機種32台で欠損・BB/RBを保持", async () =>
+    {
+        var html = await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory,"minrepo-3398462-detail.html"));
+        var details = new MinRepoHtmlParser().ParseMachineDetails(html,new("https://min-repo.com/3398462/?kishu=test"));
+        Check(details.Count == 32, "32台を重複見出し込みで解析");
+        Check(details[4082].Difference is null && details[4082].Games == 5063 && details[4082].Bb == 20 && details[4082].Rb == 13, "非掲載差枚を推測せずBB/RBを保存");
+        Check(details[4104].Difference == 1880 && details[4104].PayoutRate == 108.3, "掲載値");
+    });
+    await Test("本番取得JSが保存したJSONをそのまま読み込みZIP化", async () =>
+    {
+        using var input = File.OpenRead(Path.Combine(AppContext.BaseDirectory,"collector-output.json"));
+        var archive = await MinRepoHtmlArchive.LoadAsync(input,default);
+        var result = await new MinRepoExtractionService(archive).ExtractAsync(archive.CreateRequest(),null,default);
+        Check(result.RowCount == 1 && result.FailureCount == 0,"JS→JSON→照合→ZIP");
+        Check(ReadZip(result.ZipPath,"01_台別詳細.csv").Contains(",-300,1000,1000,90.00,2,1,"),"実際の取得JSとC#の形式互換");
+    });
     Console.WriteLine($"PASS: {passed} regression checks");
 }
 finally
@@ -354,6 +439,23 @@ static (MinRepoExtractionService, ScriptedHandler) ExtractionFixture(
         : uri.Query == "?kishu=test" ? detailFails ? new(HttpStatusCode.NotFound) : Html(detail)
         : Html(identity));
     return (new MinRepoExtractionService(Client(handler, clock)), handler);
+}
+
+static async Task<MinRepoHtmlArchive> LoadArchive(MinRepoHtmlArchive.ArchiveDocument document)
+{
+    using var input = new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(document));
+    return await MinRepoHtmlArchive.LoadAsync(input, default);
+}
+
+static MinRepoHtmlArchive.ArchiveDocument ArchiveFixture()
+{
+    const string identity = "<h1>10/8(木) 取込試験店</h1><div>2026年10月9日</div><div>勝率 0/1</div><div>総差枚 -300</div>";
+    return new() { Format = "minrepo-browser-pages", Version = 1, SourceUrl = "https://min-repo.com/1/", FetchBonusDetails = true,
+        Pages = [
+            new() { Url="https://min-repo.com/1/", Html=identity },
+            new() { Url="https://min-repo.com/1/?kishu=all", Html=identity+"<h2>全台 データ一覧</h2><table><tr><th>機種</th><th>台番</th><th>差枚</th><th>G数</th><th>出率</th></tr><tr><td><a href='/1/?kishu=test'>機種A</a></td><td>101</td><td>-300</td><td>1000</td><td>90%</td></tr></table><a href='/1/'>レポートトップに戻る</a>" },
+            new() { Url="https://min-repo.com/1/?kishu=test", Html=identity+"<h2>機種A データ一覧</h2><table><tr><th>台番</th><th>差枚</th><th>G数</th><th>出率</th><th>BB</th><th>RB</th></tr><tr><td>101</td><td>-300</td><td>1000</td><td>90%</td><td>2</td><td>1</td></tr></table><a href='/1/'>レポートトップに戻る</a>" }
+        ] };
 }
 
 // 仮想時計は待機時間だけ進めます。テストでは実サイトにもタイマーにも依存しません。

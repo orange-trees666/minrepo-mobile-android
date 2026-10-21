@@ -7,3 +7,5 @@
 *.apk
 *.aab
 .vs/
+
+**/node_modules/

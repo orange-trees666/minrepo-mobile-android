@@ -19,6 +19,17 @@
                 Text="Pixel 7aだけで公開レポートを取得し、CSV一式をZIPで保存できます。"
                 TextColor="{StaticResource TextSecondary}" />
 
+            <Border Padding="12" BackgroundColor="White" Stroke="{StaticResource Border}" StrokeShape="RoundRectangle 10">
+                <VerticalStackLayout Spacing="8">
+                    <Label Text="アプリ内で取得できない場合はChromeから取り込めます。" FontSize="13" />
+                    <HorizontalStackLayout Spacing="8">
+                        <Button x:Name="OpenChromeButton" Text="Chromeを開く" Clicked="OnOpenChromeClicked" />
+                        <Button x:Name="ChromeSetupButton" Text="初回設定" Clicked="OnChromeSetupClicked" />
+                    </HorizontalStackLayout>
+                    <Button x:Name="ImportChromeButton" Text="取得ファイルを読み込む" Clicked="OnImportChromeClicked" />
+                </VerticalStackLayout>
+            </Border>
+
             <Border
                 Padding="14"
                 BackgroundColor="White"
