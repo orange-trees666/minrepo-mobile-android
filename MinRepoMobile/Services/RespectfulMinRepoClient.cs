@@ -8,10 +8,10 @@ namespace MinRepoMobile.Services;
 /// robots.txt確認、アクセス間隔、限定的再試行を担当します。
 /// 同時実行をSemaphoreSlimで直列化し、端末から短時間に大量要求しないようにします。
 /// </summary>
-public sealed class RespectfulMinRepoClient
+public sealed class RespectfulMinRepoClient : IMinRepoPageSource
 {
     private const string UserAgentProduct = "MinRepoMobileExtractor";
-    private const string UserAgentVersion = "1.0.18";
+    private const string UserAgentVersion = "1.0.19";
 
     // みんレポの公開ページは、ブラウザー上のJavaScriptでこの2つのCookieを設定後、
     // 同じ公開ページを再表示したときに完全な差枚・出率を返します。
@@ -111,6 +111,28 @@ public sealed class RespectfulMinRepoClient
         }
 
         throw new HttpRequestException("ページを取得できませんでした。");
+    }
+
+    /// <summary>
+    /// ブラウザーのトップレベル遷移にもrobots.txtと取得間隔を適用します。
+    /// HTMLやCookieはWebViewが管理し、このメソッドでは内容を取得しません。
+    /// </summary>
+    public async Task AuthorizeBrowserNavigationAsync(
+        Uri uri, TimeSpan delay, CancellationToken cancellationToken)
+    {
+        if (!MinRepoUrl.IsAllowedHost(uri))
+            throw new ArgumentException("許可されていない取得先です。", nameof(uri));
+
+        await _requestLock.WaitAsync(cancellationToken);
+        try
+        {
+            await EnsureRobotsPolicyAsync(delay, cancellationToken);
+            if (_robotsPolicy is null || !_robotsPolicy.CanFetch(uri.PathAndQuery))
+                throw new PageAcquisitionException($"robots.txtにより自動取得が許可されていません: {uri}");
+            await WaitForRequestIntervalAsync(delay, cancellationToken);
+            _lastRequestAt = _utcNow();
+        }
+        finally { _requestLock.Release(); }
     }
 
     private async Task<HttpResponseMessage> SendWithRetryAsync(
@@ -250,6 +272,9 @@ public sealed class RespectfulMinRepoClient
             }
 
             var text = await response.Content.ReadAsStringAsync(cancellationToken);
+            // HTTP 200の確認用HTMLを「制限なしのrobots」と誤解釈しません。
+            if (Regex.IsMatch(text, @"<\s*(?:html|script)\b", RegexOptions.IgnoreCase))
+                throw new PageAcquisitionException("robots.txtの代わりに確認用ページが返されたため取得を停止しました。");
             _robotsPolicy = RobotsPolicy.Parse(text, UserAgentProduct);
         }
         catch (Exception ex) when (

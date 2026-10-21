@@ -18,7 +18,10 @@ public static class MauiProgram
 
         // 取得処理と画面をDIへ登録し、画面側で直接newしない構成にします。
         builder.Services.AddSingleton<StoreCatalogService>();
-        builder.Services.AddSingleton<MinRepoExtractionService>();
+        builder.Services.AddSingleton<Platforms.Android.AndroidWebViewPageSource>();
+        // HTML取得は実ブラウザーへ統一し、HTTPとWebViewでCookieを混在させません。
+        builder.Services.AddSingleton<MinRepoExtractionService>(services => new(
+            services.GetRequiredService<Platforms.Android.AndroidWebViewPageSource>()));
         builder.Services.AddSingleton<BackgroundExtractionCoordinator>();
         builder.Services.AddSingleton<IBackgroundExtractionService,
             Platforms.Android.AndroidBackgroundExtractionService>();

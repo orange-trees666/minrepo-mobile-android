@@ -4,6 +4,8 @@ using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.ApplicationModel.DataTransfer;
 using Microsoft.Maui.Devices;
 using Microsoft.Maui.Networking;
+using Microsoft.Maui.Storage;
+using MinRepoMobile.Platforms.Android;
 
 namespace MinRepoMobile;
 
@@ -18,6 +20,7 @@ public partial class MainPage : ContentPage
     private readonly BackgroundExtractionCoordinator _backgroundCoordinator;
     private CancellationTokenSource? _cancellation;
     private string? _latestZipPath;
+    private bool _localProgressRunning;
     private DateOnly _selectedFromDate;
     private DateOnly _selectedToDate;
     private IReadOnlyList<StoreDefinition> _allStores = [];
@@ -27,7 +30,8 @@ public partial class MainPage : ContentPage
         MinRepoExtractionService extractor,
         StoreCatalogService storeCatalog,
         IBackgroundExtractionService backgroundExtraction,
-        BackgroundExtractionCoordinator backgroundCoordinator)
+        BackgroundExtractionCoordinator backgroundCoordinator,
+        AndroidWebViewPageSource browserPages)
     {
         InitializeComponent();
         _extractor = extractor;
@@ -35,6 +39,9 @@ public partial class MainPage : ContentPage
         _backgroundExtraction = backgroundExtraction;
         _backgroundCoordinator = backgroundCoordinator;
         _backgroundCoordinator.StateChanged += OnBackgroundStateChanged;
+        browserPages.Attach(AcquisitionWebView);
+        browserPages.StatusChanged += message => MainThread.BeginInvokeOnMainThread(() =>
+            BrowserHintLabel.Text = message);
 
         // 初期期間は直近30日とし、スマホで過度な件数を取得しない設定にします。
         _selectedToDate = DateOnly.FromDateTime(DateTime.Today);
@@ -83,6 +90,13 @@ public partial class MainPage : ContentPage
             StoreCatalogStatusLabel.Text =
                 $"設定ファイルから{_allStores.Count:N0}店舗を読み込みました。";
             SetRunningState(_backgroundExtraction.IsRunning);
+#if DEBUG
+            // CIは画面生成後に実WebViewを操作します。通常起動では実行しません。
+            if (Platform.CurrentActivity?.Intent?.GetBooleanExtra("minrepo_smoke_test", false) == true)
+                await BrowserSmokeTests.RunAsync(this, _extractor, browserPages: AppServiceProvider.Current!
+                    .GetService(typeof(AndroidWebViewPageSource)) as AndroidWebViewPageSource ??
+                    throw new InvalidOperationException("ブラウザー取得を初期化できません。"));
+#endif
         }
         catch (Exception ex)
         {
@@ -218,6 +232,91 @@ public partial class MainPage : ContentPage
         UpdateStoreSelectionSummary();
     }
 
+    /// <summary>通常のChromeを開き、アプリ内WebViewと独立した通常の閲覧セッションを使います。</summary>
+    private async void OnOpenChromeClicked(object? sender, EventArgs e)
+    {
+        if (!TryCreateRequest(out var request, out var message))
+        {
+            await DisplayAlertAsync("入力確認", message, "OK");
+            return;
+        }
+        try
+        {
+            var source = MinRepoUrl.Normalize(request!.SourceUrl, requireStorePath: request.IsStoreMode);
+            var options = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                from = request.FromDate?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+                to = request.ToDate?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+                maximum = request.MaxReports, bonus = request.FetchBonusDetails, delay = (int)request.Delay.TotalSeconds,
+            });
+            var uri = new UriBuilder(source) { Fragment = "minrepo=" + Uri.EscapeDataString(options) }.Uri;
+            var chrome = new global::Android.Content.Intent(global::Android.Content.Intent.ActionView,
+                global::Android.Net.Uri.Parse(uri.AbsoluteUri));
+            chrome.SetPackage("com.android.chrome");
+            try { Platform.CurrentActivity!.StartActivity(chrome); }
+            catch (global::Android.Content.ActivityNotFoundException)
+            {
+                await Browser.Default.OpenAsync(uri, BrowserLaunchMode.External);
+            }
+        }
+        catch (Exception ex) { await DisplayAlertAsync("Chromeを開けませんでした", ex.Message, "OK"); }
+    }
+
+    /// <summary>初回だけ取得用ブックマークを設定します。Cookie等を取り出す処理は含みません。</summary>
+    private async void OnChromeSetupClicked(object? sender, EventArgs e)
+    {
+        try
+        {
+            using var stream = await FileSystem.OpenAppPackageFileAsync("minrepo-browser-collector.js");
+            using var reader = new StreamReader(stream);
+            var script = await reader.ReadToEndAsync();
+            await Clipboard.Default.SetTextAsync("javascript:" + Uri.EscapeDataString(script));
+            await DisplayAlertAsync("初回のChrome設定",
+                "取得機能をコピーしました。\n\n" +
+                "1. Chromeでブックマーク「みんレポ取得」を作成します。\n" +
+                "2. ブックマークを編集し、URL欄をコピーした内容に置き換えて保存します。\n\n" +
+                "次回からは、店舗一覧または日別レポートでそのブックマークを開くと取得できます。" +
+                "取得後、アプリの「取得ファイルを読み込む」で保存したJSONファイルを選んでください。",
+                "OK");
+        }
+        catch (Exception ex) { await DisplayAlertAsync("設定を準備できませんでした", ex.Message, "OK"); }
+    }
+
+    /// <summary>選択したファイルを既存の全台数・総差枚照合へ通し、通信なしでCSV/ZIPへ変換します。</summary>
+    private async void OnImportChromeClicked(object? sender, EventArgs e)
+    {
+        try
+        {
+            var file = await FilePicker.Default.PickAsync(new PickOptions
+            {
+                PickerTitle = "Chromeで保存したminrepo-browserファイルを選択",
+                FileTypes = new FilePickerFileType(new Dictionary<DevicePlatform, IEnumerable<string>>
+                {
+                    [DevicePlatform.Android] = new[] { "application/json", "text/plain", "application/octet-stream" },
+                }),
+            });
+            if (file is null) return;
+            if (!TryReadAggregation(out var periods, out var keys, out var message))
+            {
+                await DisplayAlertAsync("入力確認", message, "OK");
+                return;
+            }
+            var partial = PartialOutputRadio.IsChecked;
+            await RunExtractionAsync(token =>
+            {
+                var progress = CreateLocalProgress();
+                return Task.Run(async () =>
+                {
+                    using var input = await file.OpenReadAsync();
+                    var archive = await MinRepoHtmlArchive.LoadAsync(input, token);
+                    var request = archive.CreateRequest() with { Periods = periods, Keys = keys, CreatePartialOutput = partial };
+                    return await new MinRepoExtractionService(archive).ExtractAsync(request, progress, token);
+                }, token);
+            });
+        }
+        catch (Exception ex) { await DisplayAlertAsync("ファイルを開けませんでした", ex.Message, "OK"); }
+    }
+
     private async void OnStartClicked(object? sender, EventArgs e)
     {
         if (!TryCreateRequest(out var request, out var validationMessage))
@@ -235,22 +334,7 @@ public partial class MainPage : ContentPage
             return;
         }
 
-        if (request!.IsStoreMode &&
-            (request.MaxReports > 7 ||
-             request.ToDate!.Value.DayNumber - request.FromDate!.Value.DayNumber > 7))
-        {
-            var continueExecution = await DisplayAlertAsync(
-                "長期間の取得には時間がかかります",
-                "BB・RB取得を選んだ場合は、機種別ページも順番に取得します。" +
-                "1週間を超える場合は数十分かかる可能性があります。続行しますか？",
-                "実行",
-                "戻る");
-            if (!continueExecution)
-            {
-                return;
-            }
-        }
-
+        _localProgressRunning = true;
         _latestZipPath = null;
         ShareButton.IsEnabled = false;
         LogEditor.Text = string.Empty;
@@ -258,6 +342,7 @@ public partial class MainPage : ContentPage
 
         try
         {
+            BrowserPanel.IsVisible = true;
             await _backgroundExtraction.StartAsync(request!);
         }
         catch (Exception ex)
@@ -272,7 +357,7 @@ public partial class MainPage : ContentPage
     {
         await RunExtractionAsync(
             cancellationToken => _extractor.RunSelfTestAsync(
-                new Progress<ExtractionProgress>(UpdateProgress),
+                CreateLocalProgress(),
                 cancellationToken));
     }
 
@@ -281,6 +366,7 @@ public partial class MainPage : ContentPage
     {
         _cancellation?.Dispose();
         _cancellation = new CancellationTokenSource();
+        _localProgressRunning = true;
         _latestZipPath = null;
         ShareButton.IsEnabled = false;
         LogEditor.Text = string.Empty;
@@ -296,7 +382,8 @@ public partial class MainPage : ContentPage
             _latestZipPath = result.ZipPath;
             ShareButton.IsEnabled = true;
             ProgressBar.Progress = 1;
-            StatusLabel.Text = result.FailureCount == 0
+            _localProgressRunning = false;
+            StatusLabel.Text = result.RowCount == 0 ? "エラー: 台データを取得できませんでした（診断ZIPを保存できます）" : result.FailureCount == 0
                 ? $"完了: {result.ReportCount:N0}日分 / {result.RowCount:N0}台日"
                 : $"完了: {result.ReportCount:N0}日分 / {result.RowCount:N0}台日" +
                   $" / 警告{result.FailureCount:N0}件";
@@ -310,17 +397,20 @@ public partial class MainPage : ContentPage
         }
         catch (OperationCanceledException)
         {
+            _localProgressRunning = false;
             StatusLabel.Text = "中止しました";
             AppendLog("ユーザー操作により処理を中止しました。");
         }
         catch (Exception ex)
         {
+            _localProgressRunning = false;
             StatusLabel.Text = "エラー";
             AppendLog(ex.Message);
             await DisplayAlertAsync("処理できませんでした", ex.Message, "OK");
         }
         finally
         {
+            _localProgressRunning = false;
             DeviceDisplay.Current.KeepScreenOn = false;
             SetRunningState(false);
         }
@@ -416,28 +506,7 @@ public partial class MainPage : ContentPage
             return false;
         }
 
-        var periods = AggregationPeriods.None;
-        periods |= DayCheckBox.IsChecked ? AggregationPeriods.Day : AggregationPeriods.None;
-        periods |= WeekCheckBox.IsChecked ? AggregationPeriods.Week : AggregationPeriods.None;
-        periods |= MonthCheckBox.IsChecked ? AggregationPeriods.Month : AggregationPeriods.None;
-        if (periods == AggregationPeriods.None)
-        {
-            validationMessage = "日毎・週毎・月毎から、1つ以上選択してください。";
-            return false;
-        }
-
-        var keys = AggregationKeys.None;
-        keys |= MachineKeyCheckBox.IsChecked ? AggregationKeys.Machine : AggregationKeys.None;
-        keys |= PayoutKeyCheckBox.IsChecked ? AggregationKeys.PayoutBand : AggregationKeys.None;
-        keys |= EndingKeyCheckBox.IsChecked ? AggregationKeys.Ending : AggregationKeys.None;
-        keys |= InstalledKeyCheckBox.IsChecked
-            ? AggregationKeys.InstalledUnits
-            : AggregationKeys.None;
-        if (keys == AggregationKeys.None)
-        {
-            validationMessage = "機種別・出率帯別・末尾別・設置台数別から、1つ以上選択してください。";
-            return false;
-        }
+        if (!TryReadAggregation(out var periods, out var keys, out validationMessage)) return false;
 
         request = new ExtractionRequest(
             SourceUrl: sourceUrl,
@@ -452,6 +521,44 @@ public partial class MainPage : ContentPage
             FetchBonusDetails: BonusDetailsCheckBox.IsChecked,
             CreatePartialOutput: PartialOutputRadio.IsChecked);
         return true;
+    }
+
+    private bool TryReadAggregation(out AggregationPeriods periods, out AggregationKeys keys, out string validationMessage)
+    {
+        validationMessage = string.Empty;
+        keys = AggregationKeys.None;
+        periods = AggregationPeriods.None;
+        periods |= DayCheckBox.IsChecked ? AggregationPeriods.Day : AggregationPeriods.None;
+        periods |= WeekCheckBox.IsChecked ? AggregationPeriods.Week : AggregationPeriods.None;
+        periods |= MonthCheckBox.IsChecked ? AggregationPeriods.Month : AggregationPeriods.None;
+        if (periods == AggregationPeriods.None)
+        {
+            validationMessage = "日毎・週毎・月毎から、1つ以上選択してください。";
+            return false;
+        }
+
+        keys |= MachineKeyCheckBox.IsChecked ? AggregationKeys.Machine : AggregationKeys.None;
+        keys |= PayoutKeyCheckBox.IsChecked ? AggregationKeys.PayoutBand : AggregationKeys.None;
+        keys |= EndingKeyCheckBox.IsChecked ? AggregationKeys.Ending : AggregationKeys.None;
+        keys |= InstalledKeyCheckBox.IsChecked
+            ? AggregationKeys.InstalledUnits
+            : AggregationKeys.None;
+        if (keys == AggregationKeys.None)
+        {
+            validationMessage = "機種別・出率帯別・末尾別・設置台数別から、1つ以上選択してください。";
+            return false;
+        }
+
+        return true;
+    }
+
+    private IProgress<ExtractionProgress> CreateLocalProgress()
+    {
+        var run = _cancellation;
+        return new Progress<ExtractionProgress>(progress =>
+        {
+            if (_localProgressRunning && ReferenceEquals(run, _cancellation)) UpdateProgress(progress);
+        });
     }
 
     private void UpdateProgress(ExtractionProgress progress)
@@ -481,6 +588,8 @@ public partial class MainPage : ContentPage
     {
         StatusLabel.Text = state.Message;
         ProgressBar.Progress = Math.Clamp(state.Progress, 0, 1);
+        BrowserStatusLabel.Text = state.Message;
+        BrowserProgressBar.Progress = Math.Clamp(state.Progress, 0, 1);
 
         if (appendToLog)
         {
@@ -536,7 +645,13 @@ public partial class MainPage : ContentPage
 
     private void SetRunningState(bool isRunning)
     {
+        BrowserPanel.IsVisible = isRunning && _backgroundExtraction.IsRunning;
+        // ブラウザーのJS実行が停止しないよう、通常取得も画面点灯を維持します。
+        DeviceDisplay.Current.KeepScreenOn = isRunning;
         StartButton.IsEnabled = !isRunning;
+        OpenChromeButton.IsEnabled = !isRunning;
+        ChromeSetupButton.IsEnabled = !isRunning;
+        ImportChromeButton.IsEnabled = !isRunning;
         CancelButton.IsEnabled = isRunning;
         UrlEntry.IsEnabled = !isRunning;
         PrefecturePicker.IsEnabled =
@@ -565,5 +680,9 @@ public partial class MainPage : ContentPage
         StrictOutputRadio.IsEnabled = !isRunning;
         SelfTestButton.IsEnabled = !isRunning;
     }
+
+#if DEBUG
+    internal void ShowBrowserForSmokeTest(bool visible) => BrowserPanel.IsVisible = visible;
+#endif
 
 }

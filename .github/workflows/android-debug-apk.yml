@@ -6,11 +6,13 @@ on:
     paths:
       - "MinRepoMobile/**"
       - ".github/workflows/android-debug-apk.yml"
+      - ".github/scripts/**"
       - "tests/**"
   pull_request:
     paths:
       - "MinRepoMobile/**"
       - ".github/workflows/android-debug-apk.yml"
+      - ".github/scripts/**"
       - "tests/**"
   workflow_dispatch:
 
@@ -64,13 +66,24 @@ jobs:
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
+      - name: Setup Node for browser collector checks
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Verify browser collector and archive format
+        run: |
+          npm ci --prefix tests/collector --ignore-scripts --no-audit --no-fund
+          node tests/collector/test.cjs
+          git diff --exit-code tests/fixtures/collector-output.json
       # 実コードを検証し、外部通信やAndroid SDKに依存せず早期に異常を検出します。
       - name: Run offline regression checks
         run: dotnet run --project tests/MinRepoMobile.Regression/MinRepoMobile.Regression.csproj -c Release
 
   build:
     needs: [prune-old-artifacts, regression]
-    runs-on: windows-latest
+    # KVM対応Linux上で、署名APKを実Androidのブラウザーまで通して検証します。
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
 
     steps:
       - name: Checkout
@@ -84,12 +97,34 @@ jobs:
       - name: Install Android workload
         run: dotnet workload install maui-android
 
+      - name: Select Android Java
+        run: echo "JAVA_HOME=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
+
       - name: Restore
-        run: dotnet restore .\MinRepoMobile\MinRepoMobile.csproj
+        run: dotnet restore MinRepoMobile/MinRepoMobile.csproj
 
       # Debug APKはテスト導入用です。一般配布時は独自の署名鍵でRelease発行してください。
       - name: Build debug APK
-        run: dotnet build .\MinRepoMobile\MinRepoMobile.csproj -f net10.0-android -c Debug
+        run: dotnet build MinRepoMobile/MinRepoMobile.csproj -f net10.0-android -c Debug
+
+      # JS/Cookie模擬取得・Chrome取得ファイル取込・実HTML形式のAndroid検証を配布条件にします。
+      # 外部サイトの直接取得は別の成否として明記し、失敗を成功と扱いません。
+      - name: Verify Android browser and Chrome file import
+        run: bash .github/scripts/android-browser-smoke.sh
+
+      # ライブ取得の失敗も含め、必須チェックの成否と別々に診断結果を保存します。
+      - name: Upload browser test evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: browser-smoke-evidence-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/minrepo-browser-test/result.json
+            ${{ runner.temp }}/minrepo-browser-test/browser.log
+            ${{ runner.temp }}/minrepo-browser-test/browser-final.html
+            ${{ runner.temp }}/minrepo-browser-test/failure.png
+          if-no-files-found: ignore
+          retention-days: 2
 
       # PRではビルド確認だけを行い、容量を消費するAPKは保存しません。
       - name: Upload APK
@@ -98,7 +133,7 @@ jobs:
         with:
           name: minrepo-mobile-debug-apk
           # 端末へ単体でインストールできる署名済みAPKだけを保存します。
-          path: MinRepoMobile\bin\Debug\net10.0-android\**\*-Signed.apk
+          path: MinRepoMobile/bin/Debug/net10.0-android/**/*-Signed.apk
           if-no-files-found: error
           retention-days: 7
 

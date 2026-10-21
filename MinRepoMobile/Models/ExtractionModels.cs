@@ -110,3 +110,8 @@ public sealed record ExtractionResult(
     int ReportCount,
     int RowCount,
     int FailureCount);
+
+/// <summary>公開トップの掲載値と、明細から確認した値を分けて記録します。</summary>
+public sealed record PublishedReportTotal(string Store, DateOnly ReportDate,
+    int? PublishedUnits, int? PublishedDifference, int ParsedUnits,
+    int? ParsedDifference, int MissingDifferenceUnits, string SourceUrl);

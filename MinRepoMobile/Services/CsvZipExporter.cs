@@ -21,7 +21,8 @@ public sealed class CsvZipExporter
         string source,
         AggregationPeriods periods,
         AggregationKeys keys,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyList<PublishedReportTotal>? publishedTotals = null)
     {
         var workDirectory = Path.Combine(
             FileSystem.CacheDirectory,
@@ -50,6 +51,19 @@ public sealed class CsvZipExporter
                 Path.Combine(workDirectory, "09_機種評価.csv"),
                 rows);
 
+            WriteCsv(Path.Combine(workDirectory, "10_店舗掲載値と照合.csv"),
+                new[] { "店舗", "日付", "掲載全台数", "掲載総差枚", "解析台数", "明細総差枚",
+                    "差枚非掲載台数", "全台数照合", "総差枚照合", "出典URL" },
+                (publishedTotals ?? []).Select(t => new object?[]
+                {
+                    t.Store, t.ReportDate.ToString("yyyy-MM-dd"), t.PublishedUnits, t.PublishedDifference,
+                    t.ParsedUnits, t.ParsedDifference, t.MissingDifferenceUnits,
+                    t.PublishedUnits is null ? "掲載なし" : t.PublishedUnits == t.ParsedUnits ? "一致" : "不一致",
+                    t.PublishedDifference is null ? "掲載なし" : t.ParsedDifference is null ? "明細欠損のため未照合" :
+                        t.PublishedDifference == t.ParsedDifference ? "一致" : "不一致",
+                    t.SourceUrl,
+                }));
+
             var metadata = new
             {
                 createdAt = DateTimeOffset.Now,
@@ -62,6 +76,7 @@ public sealed class CsvZipExporter
                 differencePublishedRows = rows.Count(row => row.Difference is not null),
                 differenceNotPublishedRows = rows.Count(row => row.Difference is null),
                 failures,
+                publishedTotals,
                 notice =
                     "みんレポ掲載値は同サイトの独自調査値で、実際の数値と異なる可能性があります。" +
                     "サイト上で「-」の項目は推測せず空欄にし、欠損を含む集計の差枚指標も空欄にしています。" +

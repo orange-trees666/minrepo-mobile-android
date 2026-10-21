@@ -9,14 +9,14 @@ namespace MinRepoMobile.Services;
 /// </summary>
 public sealed class MinRepoExtractionService
 {
-    private readonly RespectfulMinRepoClient _client;
+    private readonly IMinRepoPageSource _client;
     private readonly MinRepoHtmlParser _parser = new();
     private readonly CsvZipExporter _exporter = new();
 
     public MinRepoExtractionService() : this(new RespectfulMinRepoClient()) { }
 
     // 通信を差し替え、実サイトへアクセスせず取得からZIP作成まで回帰検証できます。
-    internal MinRepoExtractionService(RespectfulMinRepoClient client) => _client = client;
+    public MinRepoExtractionService(IMinRepoPageSource client) => _client = client;
 
     public async Task<ExtractionResult> ExtractAsync(
         ExtractionRequest request,
@@ -51,6 +51,7 @@ public sealed class MinRepoExtractionService
         }
 
         var allRows = new List<SlotRow>();
+        var publishedTotals = new List<PublishedReportTotal>();
 
         for (var index = 0; index < reportUris.Count; index++)
         {
@@ -82,6 +83,7 @@ public sealed class MinRepoExtractionService
                 {
                     throw;
                 }
+                catch (PageAcquisitionException) { throw; }
                 catch (Exception ex)
                 {
                     var failure = new ExtractionFailure(
@@ -236,10 +238,19 @@ public sealed class MinRepoExtractionService
                 }
 
                 allRows.AddRange(reportRows);
+                publishedTotals.Add(new PublishedReportTotal(report.Store, report.ReportDate,
+                    expectedUnitCount, expectedTotalDifference, reportRows.Count,
+                    parsedTotalDifference, missingDifferenceCount, reportTopUri.AbsoluteUri));
             }
             catch (OperationCanceledException)
             {
                 throw;
+            }
+            catch (PageAcquisitionException ex)
+            {
+                failures.Add(new ExtractionFailure(allMachinesUri.AbsoluteUri,
+                    ex.Message, "ブラウザー取得・停止"));
+                break; // 確認画面のループ時に残りの日付へ連続アクセスしません。
             }
             catch (Exception ex)
             {
@@ -275,7 +286,7 @@ public sealed class MinRepoExtractionService
             request.SourceUrl,
             request.Periods,
             request.Keys,
-            cancellationToken);
+            cancellationToken, publishedTotals);
 
         progress?.Report(new ExtractionProgress("ZIPを作成しました", 1));
         return new ExtractionResult(
@@ -515,7 +526,9 @@ public sealed class MinRepoExtractionService
     {
         var enriched = report.Rows.ToList();
         var detailUrls = report.Rows
-            .Where(row => !string.IsNullOrWhiteSpace(row.DetailUrl))
+            .Where(row => !string.IsNullOrWhiteSpace(row.DetailUrl) &&
+                (request.FetchBonusDetails || row.Difference is null ||
+                 (row.Games > 0 && row.PayoutRate is null)))
             .Select(row => row.DetailUrl!)
             .Concat(report.PendingRows.Select(row => row.DetailUrl))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -625,6 +638,7 @@ public sealed class MinRepoExtractionService
             {
                 throw;
             }
+            catch (PageAcquisitionException) { throw; }
             catch (Exception ex)
             {
                 failures.Add(new ExtractionFailure(
@@ -735,6 +749,7 @@ public sealed class MinRepoExtractionService
             {
                 throw;
             }
+            catch (PageAcquisitionException) { throw; }
             catch (Exception ex)
             {
                 var failure = new ExtractionFailure(
