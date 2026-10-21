@@ -16,14 +16,21 @@
   const today = new Date();
   const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const start = new Date(today); start.setDate(start.getDate()-30);
+  let options={};
+  try {options=JSON.parse(new URLSearchParams(location.hash.slice(1)).get('minrepo')||'{}')||{};} catch {}
+  const dateOption=(value,fallback)=>typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value)?value:fallback;
+  const numberOption=(value,min,max,fallback)=>Number.isInteger(value)&&value>=min&&value<=max?value:fallback;
+  const initialFrom=dateOption(options.from,iso(start)), initialTo=dateOption(options.to,iso(today));
+  const initialMaximum=numberOption(options.maximum,1,100,31),initialDelay=numberOption(options.delay,5,60,5);
+  const initialBonus=typeof options.bonus==='boolean'?options.bonus:true;
   dialog.innerHTML = `<h2 style="margin:0 0 12px">みんレポ取得</h2>
     <p>完了までChromeを開いておいてください。取得後、アプリで保存ファイルを読み込みます。</p>
     <div id="minrepo-period" ${storeMode?'':'hidden'}>
-      <label>開始日 <input id="minrepo-from" type="date" value="${iso(start)}"></label><br>
-      <label>終了日 <input id="minrepo-to" type="date" value="${iso(today)}"></label><br>
-      <label>最大日数 <input id="minrepo-max" type="number" min="1" max="100" value="31" style="width:70px"></label>
-    </div><p><label><input id="minrepo-bonus" type="checkbox" checked> BB・RBなどの詳細も取得する</label></p>
-    <p><label>取得間隔（秒） <input id="minrepo-delay" type="number" min="5" max="60" value="5" style="width:70px"></label></p>
+      <label>開始日 <input id="minrepo-from" type="date" value="${initialFrom}"></label><br>
+      <label>終了日 <input id="minrepo-to" type="date" value="${initialTo}"></label><br>
+      <label>最大日数 <input id="minrepo-max" type="number" min="1" max="100" value="${initialMaximum}" style="width:70px"></label>
+    </div><p><label><input id="minrepo-bonus" type="checkbox" ${initialBonus?'checked':''}> BB・RBなどの詳細も取得する</label></p>
+    <p><label>取得間隔（秒） <input id="minrepo-delay" type="number" min="5" max="60" value="${initialDelay}" style="width:70px"></label></p>
     <p id="minrepo-status" role="status">準備できました。</p>
     <button id="minrepo-start" type="button">取得して保存</button>
     <button id="minrepo-cancel" type="button">閉じる</button>`;
@@ -133,17 +140,26 @@
           if(selectedStore && info.store!==selectedStore) throw Error('別の店舗のレポートが含まれています。店舗一覧から取得し直してください。');
           selectedStore=info.store;
           const allUrl=new URL('?kishu=all',topUrl); const all=await getPage(allUrl);
-          const details=new Set();
-          for(const row of all.querySelectorAll('table tr')) {
-            const cells=Array.from(row.querySelectorAll('td'));
-            if(cells.length!==5)continue;
-            const link=cells[0].querySelector('a[href]');if(!link)continue;
-            const u=new URL(link.getAttribute('href'),allUrl);
-            const text=i=>cells[i].textContent.replace(/[,\s]/g,'').replaceAll('−','-');
-            const repair=!/^[+-]?\d+$/.test(text(2)) || !/^\d+$/.test(text(3)) ||
-              (Number(text(3))>0&&!/^[\d.]+%$/.test(text(4)));
-            if((bonus||repair)&&allowed(u)&&u.pathname===topUrl.pathname&&u.searchParams.has('kishu')&&u.searchParams.get('kishu')!=='all') details.add(u.href);
+          const details=new Set(); let unitRows=0;
+          for(const table of all.querySelectorAll('table')) {
+            const headers=Array.from(table.querySelectorAll('tr')).map(r=>Array.from(r.querySelectorAll('th')).map(c=>c.textContent.replace(/\s/g,'')))
+              .find(h=>h.includes('機種')&&(h.includes('台番')||h.includes('台番号'))&&h.includes('差枚')&&(h.includes('G数')||h.includes('ゲーム数'))&&h.includes('出率'));
+            if(!headers)continue;
+            const indexes=['機種','台番','差枚','G数','出率'].map(name=>headers.findIndex(h=>h===name||
+              (name==='台番'&&h==='台番号')||(name==='G数'&&h==='ゲーム数')));
+            for(const row of table.querySelectorAll('tr')) {
+              const cells=Array.from(row.querySelectorAll('td'));
+              if(cells.length<=Math.max(...indexes))continue;
+              const text=i=>cells[indexes[i]].textContent.replace(/[,\s]/g,'').replaceAll('−','-');
+              if(!/^\d+$/.test(text(1)))continue;unitRows++;
+              const link=cells[indexes[0]].querySelector('a[href]');if(!link)continue;
+              const u=new URL(link.getAttribute('href'),allUrl);
+              const repair=!/^[+-]?\d+$/.test(text(2)) || !/^\d+$/.test(text(3)) ||
+                (Number(text(3))>0&&!/^[\d.]+%$/.test(text(4)));
+              if((bonus||repair)&&allowed(u)&&u.pathname===topUrl.pathname&&u.searchParams.has('kishu')&&u.searchParams.get('kishu')!=='all') details.add(u.href);
+            }
           }
+          if(!unitRows)throw Error('全台データ表を確認できませんでした。同じトップページや確認用ページでは取得を完了しません。');
           let n=0;
           for(const detail of details){status(`詳細を取得中 ${selected.length+1}日目 ${++n}/${details.size}`);await getPage(new URL(detail));}
           selected.push({url:topUrl.href,title:info.title});

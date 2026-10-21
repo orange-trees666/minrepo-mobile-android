@@ -20,6 +20,7 @@ public partial class MainPage : ContentPage
     private readonly BackgroundExtractionCoordinator _backgroundCoordinator;
     private CancellationTokenSource? _cancellation;
     private string? _latestZipPath;
+    private bool _localProgressRunning;
     private DateOnly _selectedFromDate;
     private DateOnly _selectedToDate;
     private IReadOnlyList<StoreDefinition> _allStores = [];
@@ -241,8 +242,22 @@ public partial class MainPage : ContentPage
         }
         try
         {
-            var uri = MinRepoUrl.Normalize(request!.SourceUrl, requireStorePath: request.IsStoreMode);
-            await Browser.Default.OpenAsync(uri, BrowserLaunchMode.External);
+            var source = MinRepoUrl.Normalize(request!.SourceUrl, requireStorePath: request.IsStoreMode);
+            var options = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                from = request.FromDate?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+                to = request.ToDate?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+                maximum = request.MaxReports, bonus = request.FetchBonusDetails, delay = (int)request.Delay.TotalSeconds,
+            });
+            var uri = new UriBuilder(source) { Fragment = "minrepo=" + Uri.EscapeDataString(options) }.Uri;
+            var chrome = new global::Android.Content.Intent(global::Android.Content.Intent.ActionView,
+                global::Android.Net.Uri.Parse(uri.AbsoluteUri));
+            chrome.SetPackage("com.android.chrome");
+            try { Platform.CurrentActivity!.StartActivity(chrome); }
+            catch (global::Android.Content.ActivityNotFoundException)
+            {
+                await Browser.Default.OpenAsync(uri, BrowserLaunchMode.External);
+            }
         }
         catch (Exception ex) { await DisplayAlertAsync("Chromeを開けませんでした", ex.Message, "OK"); }
     }
@@ -281,21 +296,23 @@ public partial class MainPage : ContentPage
                 }),
             });
             if (file is null) return;
-            TryCreateRequest(out var selection, out _);
-            var progress = new Progress<ExtractionProgress>(UpdateProgress);
-            await RunExtractionAsync(token => Task.Run(async () =>
+            if (!TryReadAggregation(out var periods, out var keys, out var message))
             {
-                using var input = await file.OpenReadAsync();
-                var archive = await MinRepoHtmlArchive.LoadAsync(input, token);
-                var request = archive.CreateRequest();
-                if (selection is not null) request = request with
+                await DisplayAlertAsync("入力確認", message, "OK");
+                return;
+            }
+            var partial = PartialOutputRadio.IsChecked;
+            await RunExtractionAsync(token =>
+            {
+                var progress = CreateLocalProgress();
+                return Task.Run(async () =>
                 {
-                    Periods = selection.Periods,
-                    Keys = selection.Keys,
-                    CreatePartialOutput = selection.CreatePartialOutput,
-                };
-                return await new MinRepoExtractionService(archive).ExtractAsync(request, progress, token);
-            }, token));
+                    using var input = await file.OpenReadAsync();
+                    var archive = await MinRepoHtmlArchive.LoadAsync(input, token);
+                    var request = archive.CreateRequest() with { Periods = periods, Keys = keys, CreatePartialOutput = partial };
+                    return await new MinRepoExtractionService(archive).ExtractAsync(request, progress, token);
+                }, token);
+            });
         }
         catch (Exception ex) { await DisplayAlertAsync("ファイルを開けませんでした", ex.Message, "OK"); }
     }
@@ -317,6 +334,7 @@ public partial class MainPage : ContentPage
             return;
         }
 
+        _localProgressRunning = true;
         _latestZipPath = null;
         ShareButton.IsEnabled = false;
         LogEditor.Text = string.Empty;
@@ -339,7 +357,7 @@ public partial class MainPage : ContentPage
     {
         await RunExtractionAsync(
             cancellationToken => _extractor.RunSelfTestAsync(
-                new Progress<ExtractionProgress>(UpdateProgress),
+                CreateLocalProgress(),
                 cancellationToken));
     }
 
@@ -348,6 +366,7 @@ public partial class MainPage : ContentPage
     {
         _cancellation?.Dispose();
         _cancellation = new CancellationTokenSource();
+        _localProgressRunning = true;
         _latestZipPath = null;
         ShareButton.IsEnabled = false;
         LogEditor.Text = string.Empty;
@@ -363,7 +382,8 @@ public partial class MainPage : ContentPage
             _latestZipPath = result.ZipPath;
             ShareButton.IsEnabled = true;
             ProgressBar.Progress = 1;
-            StatusLabel.Text = result.FailureCount == 0
+            _localProgressRunning = false;
+            StatusLabel.Text = result.RowCount == 0 ? "エラー: 台データを取得できませんでした（診断ZIPを保存できます）" : result.FailureCount == 0
                 ? $"完了: {result.ReportCount:N0}日分 / {result.RowCount:N0}台日"
                 : $"完了: {result.ReportCount:N0}日分 / {result.RowCount:N0}台日" +
                   $" / 警告{result.FailureCount:N0}件";
@@ -377,17 +397,20 @@ public partial class MainPage : ContentPage
         }
         catch (OperationCanceledException)
         {
+            _localProgressRunning = false;
             StatusLabel.Text = "中止しました";
             AppendLog("ユーザー操作により処理を中止しました。");
         }
         catch (Exception ex)
         {
+            _localProgressRunning = false;
             StatusLabel.Text = "エラー";
             AppendLog(ex.Message);
             await DisplayAlertAsync("処理できませんでした", ex.Message, "OK");
         }
         finally
         {
+            _localProgressRunning = false;
             DeviceDisplay.Current.KeepScreenOn = false;
             SetRunningState(false);
         }
@@ -483,28 +506,7 @@ public partial class MainPage : ContentPage
             return false;
         }
 
-        var periods = AggregationPeriods.None;
-        periods |= DayCheckBox.IsChecked ? AggregationPeriods.Day : AggregationPeriods.None;
-        periods |= WeekCheckBox.IsChecked ? AggregationPeriods.Week : AggregationPeriods.None;
-        periods |= MonthCheckBox.IsChecked ? AggregationPeriods.Month : AggregationPeriods.None;
-        if (periods == AggregationPeriods.None)
-        {
-            validationMessage = "日毎・週毎・月毎から、1つ以上選択してください。";
-            return false;
-        }
-
-        var keys = AggregationKeys.None;
-        keys |= MachineKeyCheckBox.IsChecked ? AggregationKeys.Machine : AggregationKeys.None;
-        keys |= PayoutKeyCheckBox.IsChecked ? AggregationKeys.PayoutBand : AggregationKeys.None;
-        keys |= EndingKeyCheckBox.IsChecked ? AggregationKeys.Ending : AggregationKeys.None;
-        keys |= InstalledKeyCheckBox.IsChecked
-            ? AggregationKeys.InstalledUnits
-            : AggregationKeys.None;
-        if (keys == AggregationKeys.None)
-        {
-            validationMessage = "機種別・出率帯別・末尾別・設置台数別から、1つ以上選択してください。";
-            return false;
-        }
+        if (!TryReadAggregation(out var periods, out var keys, out validationMessage)) return false;
 
         request = new ExtractionRequest(
             SourceUrl: sourceUrl,
@@ -519,6 +521,44 @@ public partial class MainPage : ContentPage
             FetchBonusDetails: BonusDetailsCheckBox.IsChecked,
             CreatePartialOutput: PartialOutputRadio.IsChecked);
         return true;
+    }
+
+    private bool TryReadAggregation(out AggregationPeriods periods, out AggregationKeys keys, out string validationMessage)
+    {
+        validationMessage = string.Empty;
+        keys = AggregationKeys.None;
+        periods = AggregationPeriods.None;
+        periods |= DayCheckBox.IsChecked ? AggregationPeriods.Day : AggregationPeriods.None;
+        periods |= WeekCheckBox.IsChecked ? AggregationPeriods.Week : AggregationPeriods.None;
+        periods |= MonthCheckBox.IsChecked ? AggregationPeriods.Month : AggregationPeriods.None;
+        if (periods == AggregationPeriods.None)
+        {
+            validationMessage = "日毎・週毎・月毎から、1つ以上選択してください。";
+            return false;
+        }
+
+        keys |= MachineKeyCheckBox.IsChecked ? AggregationKeys.Machine : AggregationKeys.None;
+        keys |= PayoutKeyCheckBox.IsChecked ? AggregationKeys.PayoutBand : AggregationKeys.None;
+        keys |= EndingKeyCheckBox.IsChecked ? AggregationKeys.Ending : AggregationKeys.None;
+        keys |= InstalledKeyCheckBox.IsChecked
+            ? AggregationKeys.InstalledUnits
+            : AggregationKeys.None;
+        if (keys == AggregationKeys.None)
+        {
+            validationMessage = "機種別・出率帯別・末尾別・設置台数別から、1つ以上選択してください。";
+            return false;
+        }
+
+        return true;
+    }
+
+    private IProgress<ExtractionProgress> CreateLocalProgress()
+    {
+        var run = _cancellation;
+        return new Progress<ExtractionProgress>(progress =>
+        {
+            if (_localProgressRunning && ReferenceEquals(run, _cancellation)) UpdateProgress(progress);
+        });
     }
 
     private void UpdateProgress(ExtractionProgress progress)
